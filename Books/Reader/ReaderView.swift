@@ -49,10 +49,9 @@ struct ReaderView: View {
         .navigationTitle(model.title)
         .toolbar(removing: .title)
         .toolbar(.hidden, for: .windowToolbar)
-        .background(WindowChrome(bookID: model.book.id, visible: model.chromeVisible || model.panel != nil || model.showClaude))
+        .background(WindowChrome(model: model, visible: model.chromeVisible || model.panel != nil || model.showClaude))
         .focusedSceneValue(\.readerModel, model)
         .task { await model.load() }
-        .onAppear { model.scheduleChromeHide() }
         .onDisappear { LibraryStore.shared.flushAll() }
         .sheet(item: $model.noteEditor) { h in
             NoteEditor(highlight: h) { note in
@@ -153,9 +152,9 @@ struct ReaderView: View {
     }
 
     private func selectionBarPosition(_ rect: CGRect, in size: CGSize) -> CGPoint {
-        let barHeight: CGFloat = 46, barWidth: CGFloat = 420
-        var y = rect.minY - barHeight / 2 - 12
-        if y < 70 { y = rect.maxY + barHeight / 2 + 12 }
+        let barHeight: CGFloat = 46, barWidth: CGFloat = 560
+        var y = rect.minY - barHeight / 2 - 22
+        if y < 90 { y = rect.maxY + barHeight / 2 + 22 }
         let x = min(max(rect.midX, barWidth / 2 + 12), size.width - barWidth / 2 - 12)
         return CGPoint(x: x, y: min(max(y, barHeight), size.height - barHeight))
     }
@@ -185,6 +184,7 @@ private struct TopBar: View {
                     }
                     .buttonStyle(.glass)
                     .help("Back to Library (⇧⌘L)")
+                    .accessibilityLabel("Back to Library")
                     panelButton(.contents, symbol: "list.bullet", help: "Contents")
                     panelButton(.notes, symbol: "highlighter", help: "Highlights & Bookmarks")
                     panelButton(.search, symbol: "magnifyingglass", help: "Search")
@@ -215,6 +215,7 @@ private struct TopBar: View {
                     }
                     .buttonStyle(.glass)
                     .help("Reading Settings")
+                    .accessibilityLabel("Reading Settings")
                     .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
                         ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable)
                     }
@@ -227,6 +228,7 @@ private struct TopBar: View {
                     }
                     .buttonStyle(.glass)
                     .help("Bookmark This Page (⌘D)")
+                    .accessibilityLabel("Bookmark")
 
                     Button {
                         if model.showClaude { model.showClaude = false } else { model.askClaude(action: nil) }
@@ -236,6 +238,7 @@ private struct TopBar: View {
                     .buttonStyle(.glass)
                     .tint(model.showClaude ? Color(hex: "#C96442") : nil)
                     .help("Ask Claude (⌘L)")
+                    .accessibilityLabel("Ask Claude")
                 }
             }
             .readerOverlay()
@@ -254,6 +257,7 @@ private struct TopBar: View {
         .buttonStyle(.glass)
         .tint(model.panel == panel ? Color.accentColor : nil)
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -364,23 +368,21 @@ private struct SelectionBar: View {
                         }
                         .buttonStyle(.plain)
                         .help(c == .underline ? "Underline" : "Highlight \(c.rawValue.capitalized)")
+                        .accessibilityLabel(c == .underline ? "Underline" : "Highlight \(c.rawValue)")
                     }
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 38)
                 .glassEffect(.regular, in: .capsule)
 
-                HStack(spacing: 2) {
-                    iconButton("note.text", "Note") { model.addNoteToSelection() }
-                    iconButton("doc.on.doc", "Copy") { model.copySelection() }
-                    iconButton("character.book.closed", "Look Up") {
-                        model.lookUpSelection(in: NSApp.keyWindow?.contentView)
-                    }
+                HStack(spacing: 0) {
+                    labeledButton("note.text.badge.plus", existing?.note == nil ? "Add Note" : "Edit Note") { model.addNoteToSelection() }
+                    labeledButton("doc.on.doc", "Copy") { model.copySelection() }
                     if let existing {
-                        iconButton("trash", "Delete Highlight") { model.deleteHighlight(existing.id) }
+                        labeledButton("trash", "Remove", role: .destructive) { model.deleteHighlight(existing.id) }
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 4)
                 .frame(height: 38)
                 .glassEffect(.regular, in: .capsule)
 
@@ -390,6 +392,7 @@ private struct SelectionBar: View {
                 .buttonStyle(.glassProminent)
                 .tint(Color(hex: "#C96442"))
                 .controlSize(.large)
+                .help("Ask Claude about this passage (⌘L). Right-click for quick actions.")
                 .contextMenu {
                     ForEach(ClaudeQuickAction.allCases) { a in
                         Button(a.title, systemImage: a.symbol) { model.askClaude(action: a) }
@@ -401,12 +404,16 @@ private struct SelectionBar: View {
         .readerOverlay()
     }
 
-    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .medium)).frame(width: 30, height: 30).contentShape(Rectangle())
+    private func labeledButton(_ symbol: String, _ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                .padding(.horizontal, 9)
+                .frame(height: 30)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
     }
 }
 
@@ -480,25 +487,26 @@ private struct NoteEditor: View {
     }
 }
 
-/// Fades the traffic-light buttons with the reading chrome.
+/// Window plumbing for the reader: shortcuts, full-screen tracking and traffic-light fading.
 private struct WindowChrome: NSViewRepresentable {
-    let bookID: String
+    let model: ReaderModel
     let visible: Bool
 
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
-    static func dismantleNSView(_ view: NSView, coordinator: ()) {
-        // Back in the library: show the traffic lights again.
-        guard let window = view.window else { return }
-        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            window.standardWindowButton(type)?.alphaValue = 1
-        }
+    func makeNSView(context: Context) -> TrackingView {
+        let view = TrackingView()
+        view.onWindow = { [weak coordinator = context.coordinator] window in coordinator?.attach(window) }
+        return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    static func dismantleNSView(_ view: TrackingView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    func updateNSView(_ view: TrackingView, context: Context) {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
-            window.styleMask.insert(.fullSizeContentView)
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                 guard let button = window.standardWindowButton(type) else { continue }
                 NSAnimationContext.runAnimationGroup { ctx in
@@ -506,6 +514,60 @@ private struct WindowChrome: NSViewRepresentable {
                     button.animator().alphaValue = visible ? 1 : 0
                 }
             }
+        }
+    }
+
+    final class TrackingView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { onWindow?(window) }
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        let model: ReaderModel
+        private weak var window: NSWindow?
+        private var monitor: Any?
+        private var observers: [NSObjectProtocol] = []
+
+        init(model: ReaderModel) { self.model = model }
+
+        func attach(_ window: NSWindow) {
+            guard self.window !== window else { return }
+            detach()
+            self.window = window
+            window.styleMask.insert(.fullSizeContentView)
+            window.acceptsMouseMovedEvents = true
+            model.isFullScreen = window.styleMask.contains(.fullScreen)
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
+                guard let self, let window = self.window, event.window === window, window.isKeyWindow else { return event }
+                if event.type == .mouseMoved {
+                    if self.model.isFullScreen { self.model.pokeChrome() }
+                    return event
+                }
+                return ReaderKeys.handle(event, model: self.model, window: window) ? nil : event
+            }
+            let center = NotificationCenter.default
+            for (name, value) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
+                observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.model.isFullScreen = value }
+                })
+            }
+        }
+
+        func detach() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            if let window {
+                for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                    window.standardWindowButton(type)?.alphaValue = 1
+                }
+            }
+            window = nil
         }
     }
 }

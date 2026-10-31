@@ -77,6 +77,14 @@ struct ChatThread: Syncable, Hashable, Sendable {
 enum ClaudeScope: String, Codable, CaseIterable, Sendable {
     case passage, chapter, book
 
+    var symbol: String {
+        switch self {
+        case .passage: "text.quote"
+        case .chapter: "doc.text"
+        case .book: "books.vertical"
+        }
+    }
+
     var label: String {
         switch self {
         case .passage: "Selection"

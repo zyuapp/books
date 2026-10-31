@@ -59,7 +59,15 @@ final class ReaderModel {
     var panel: ReaderPanel?
     var showClaude = false
     var showSettings = false
+    /// Controls auto-hide only in full screen; in a window they stay put.
     var chromeVisible = true
+    var isFullScreen = false {
+        didSet {
+            guard isFullScreen != oldValue else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = true }
+            if isFullScreen { scheduleChromeHide() } else { chromeTask?.cancel() }
+        }
+    }
     var selection: ReaderSelection?
     var footnote: FootnotePopup?
     var noteEditor: Highlight?
@@ -282,6 +290,7 @@ final class ReaderModel {
     }
 
     func toggleChrome() {
+        guard isFullScreen else { return }
         if chromeVisible {
             chromeTask?.cancel()
             withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = false }
@@ -292,10 +301,67 @@ final class ReaderModel {
 
     func scheduleChromeHide() {
         chromeTask?.cancel()
+        guard isFullScreen else { return }
         chromeTask = Task {
-            try? await Task.sleep(for: .seconds(3.5))
-            guard !Task.isCancelled, panel == nil, !showClaude, !showSettings, selection == nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, isFullScreen, panel == nil, !showClaude, !showSettings, selection == nil else { return }
             withAnimation(.easeInOut(duration: 0.45)) { chromeVisible = false }
+        }
+    }
+
+    // MARK: Paging traits
+
+    var pagesRightToLeft: Bool {
+        guard let publication else { return false }
+        if publication.kind == .comic { return settings.prefs.comicRightToLeft ?? publication.rightToLeft }
+        return publication.rightToLeft
+    }
+
+    var isPaginatedLayout: Bool {
+        publication?.kind == .comic || settings.prefs.layout == .paginated
+    }
+
+    func goToChapter(offset: Int) {
+        guard let publication else { return }
+        let starts = Array(Set(Self.flatten(publication.toc).map(\.spineIndex))).sorted()
+        let current = location.index
+        let target = offset > 0 ? starts.first { $0 > current } : starts.last { $0 < current }
+            ?? (offset < 0 ? starts.first : nil)
+        if let target, let entry = Self.flatten(publication.toc).first(where: { $0.spineIndex == target }) {
+            go(to: entry)
+        } else if offset < 0 {
+            jump(to: Locator(index: starts.first ?? 0))
+        }
+    }
+
+    func goToStart() { jump(to: Locator(index: 0)) }
+
+    func goToEnd() {
+        guard let publication else { return }
+        recordJumpForKeys()
+        engine?.go(to: Locator(index: publication.spine.count - 1, progression: 1), fragment: nil, atEnd: true)
+    }
+
+    private func recordJumpForKeys() { recordJump(); selection = nil; footnote = nil }
+
+    static func flatten(_ entries: [TOCEntry]) -> [TOCEntry] {
+        entries.flatMap { [$0] + flatten($0.children) }
+    }
+
+    /// Esc: dismiss the innermost thing first, then leave full screen, then return to the library.
+    func handleEscape(window: NSWindow?) {
+        if selection != nil || footnote != nil {
+            selection = nil
+            footnote = nil
+            engine?.clearSelection()
+        } else if showSettings {
+            showSettings = false
+        } else if showClaude || panel != nil {
+            withAnimation(.spring(duration: 0.35)) { showClaude = false; panel = nil }
+        } else if let window, window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        } else {
+            OpenBridge.shared.showLibrary()
         }
     }
 
@@ -381,12 +447,6 @@ final class ReaderModel {
         engine?.clearSelection()
     }
 
-    func lookUpSelection(in view: NSView?) {
-        guard let sel = selection, let view else { return }
-        let point = NSPoint(x: sel.rect.minX, y: view.isFlipped ? sel.rect.maxY : view.bounds.height - sel.rect.maxY)
-        view.showDefinition(for: NSAttributedString(string: sel.text), at: point)
-    }
-
     // MARK: Claude
 
     func askClaude(action: ClaudeQuickAction?) {
@@ -453,7 +513,7 @@ struct ClaudeRequestSeed: Equatable, Identifiable {
 }
 
 enum ClaudeQuickAction: String, CaseIterable, Identifiable {
-    case explain, summarize, define, translate, discuss
+    case explain, summarize, define, discuss
 
     var id: String { rawValue }
 
@@ -462,7 +522,6 @@ enum ClaudeQuickAction: String, CaseIterable, Identifiable {
         case .explain: "Explain"
         case .summarize: "Summarize"
         case .define: "Define"
-        case .translate: "Translate"
         case .discuss: "Discuss"
         }
     }
@@ -472,8 +531,16 @@ enum ClaudeQuickAction: String, CaseIterable, Identifiable {
         case .explain: "lightbulb"
         case .summarize: "text.append"
         case .define: "character.book.closed"
-        case .translate: "translate"
         case .discuss: "bubble.left.and.text.bubble.right"
+        }
+    }
+
+    func subtitle(hasPassage: Bool) -> String {
+        switch self {
+        case .explain: hasPassage ? "What it means and why it matters" : "What’s happening right now"
+        case .summarize: hasPassage ? "The passage in a few sentences" : "Catch up on this chapter"
+        case .define: "Key words, as used here"
+        case .discuss: "Themes, techniques and references"
         }
     }
 
@@ -482,21 +549,55 @@ enum ClaudeQuickAction: String, CaseIterable, Identifiable {
         case .explain: hasPassage ? "Explain this passage — what it means, and why it matters in context." : "Explain what is happening at this point in the book."
         case .summarize: hasPassage ? "Summarize this passage in a few sentences." : "Summarize this chapter so far."
         case .define: "Define the key word or phrase in this selection as it is used here, with a short etymology if interesting."
-        case .translate: "Translate this passage into English (or, if it is already English, into plain modern English), preserving its tone."
         case .discuss: "What themes, techniques or references are at work here? Give me something interesting to think about."
         }
     }
 }
 
-/// ⌘Z / ⇧⌘Z undo and redo jumps while the page has focus.
+/// Reader keyboard shortcuts, handled for the whole window so they work without clicking the page first.
 @MainActor
-enum JumpKeys {
-    static func handle(_ event: NSEvent, model: ReaderModel) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard event.charactersIgnoringModifiers?.lowercased() == "z" else { return false }
-        if flags == .command, model.canGoBack { model.goBack(); return true }
-        if flags == [.command, .shift], model.canGoForward { model.goForward(); return true }
-        return false
+enum ReaderKeys {
+    static func handle(_ event: NSEvent, model: ReaderModel, window: NSWindow) -> Bool {
+        if window.attachedSheet != nil { return false }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
+        if event.charactersIgnoringModifiers?.lowercased() == "w", mods == .command {
+            OpenBridge.shared.showLibrary()
+            return true
+        }
+        if event.keyCode == 53, mods.isEmpty, !((window.firstResponder as? NSTextView)?.hasMarkedText() ?? false) {
+            model.handleEscape(window: window)
+            if window.firstResponder is NSText { window.makeFirstResponder(nil) }
+            return true
+        }
+        // Leave typing alone.
+        if let responder = window.firstResponder as? NSText, responder.isEditable { return false }
+        if window.firstResponder is NSTextField { return false }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let rtl = model.pagesRightToLeft
+        let forward = { model.nextPage() }
+        let back = { model.previousPage() }
+
+        switch (Int(event.keyCode), flags) {
+        case (123, []): rtl ? forward() : back()                 // ←
+        case (124, []): rtl ? back() : forward()                 // →
+        case (125, []) where model.isPaginatedLayout: forward()  // ↓
+        case (126, []) where model.isPaginatedLayout: back()     // ↑
+        case (121, []): forward()                                // page down
+        case (116, []): back()                                   // page up
+        case (49, []): forward()                                 // space
+        case (49, .shift): back()
+        case (115, []): model.goToStart()                        // home
+        case (119, []): model.goToEnd()                          // end
+        case (123, .option): model.goToChapter(offset: rtl ? 1 : -1)
+        case (124, .option): model.goToChapter(offset: rtl ? -1 : 1)
+        default:
+            if key == "z", flags == .command, model.canGoBack { model.goBack(); return true }
+            if key == "z", flags == [.command, .shift], model.canGoForward { model.goForward(); return true }
+            return false
+        }
+        return true
     }
 }
 

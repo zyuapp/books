@@ -37,12 +37,14 @@
 		DF1EB15BC3D8B0FFF4295BDA /* ClaudePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A6CEC0858C27EDF75FFF61 /* ClaudePanel.swift */; };
 		E235F4080947033873F61805 /* WebReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D0EAAC3B66EABB6FC5A6346 /* WebReaderView.swift */; };
 		E4DF0C44CD00694CC95CAB75 /* TextExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09BCCDACBB70BBA020E786CC /* TextExtractor.swift */; };
+		EF4F5068B880E0CFB2AFD44E /* PageCurl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FE7AE3D7385B2E3B95BD09 /* PageCurl.swift */; };
 		F5E5A499A83B2C13F322FC56 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C52BFF906B2DB2A6B21680 /* LibraryStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		09BCCDACBB70BBA020E786CC /* TextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextExtractor.swift; sourceTree = "<group>"; };
 		1286E0B3181EE25BD1B43DA9 /* FB2Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FB2Parser.swift; sourceTree = "<group>"; };
+		14FE7AE3D7385B2E3B95BD09 /* PageCurl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageCurl.swift; sourceTree = "<group>"; };
 		22A6CEC0858C27EDF75FFF61 /* ClaudePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePanel.swift; sourceTree = "<group>"; };
 		329288E90B03CB4AB8D10430 /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
 		34C52BFF906B2DB2A6B21680 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				72D4BE3356901BC72818A29B /* ComicReaderView.swift */,
+				14FE7AE3D7385B2E3B95BD09 /* PageCurl.swift */,
 				80D8F7DCDD9C57F5ADC89C5B /* PDFReaderView.swift */,
 				AF0742051275F48FE839E9A4 /* ReaderModel.swift */,
 				4FEE9EB09083A4DC171E91D8 /* ReaderPanels.swift */,
@@ -295,6 +298,7 @@
 				3BC70C09F2683D30520114D5 /* MOBIKF8.swift in Sources */,
 				64EBE08B98EF64313A5B3384 /* MOBIParser.swift in Sources */,
 				C65B655B46F9740620C06AD3 /* PDFReaderView.swift in Sources */,
+				EF4F5068B880E0CFB2AFD44E /* PageCurl.swift in Sources */,
 				A310A76EC746A6D69200E85B /* Publication.swift in Sources */,
 				48E074F38C524732CAE9E96C /* ReaderModel.swift in Sources */,
 				42A6DCAE7CAA5835D9027F7D /* ReaderPanels.swift in Sources */,

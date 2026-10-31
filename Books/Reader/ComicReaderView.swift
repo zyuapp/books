@@ -107,7 +107,6 @@ struct ComicReaderView: View {
             .id(engine.visiblePages.first)
             .transition(.opacity)
             .overlay(EventCatcher(
-                onKey: { key in handleKey(key) },
                 onSwipe: { forward in forward ? model.nextPage() : model.previousPage() },
                 onMove: { model.pokeChrome() },
                 overlayRects: { model.overlayRects },
@@ -115,8 +114,7 @@ struct ComicReaderView: View {
                 onClick: { fractionX in
                     if fractionX > 0.35 && fractionX < 0.65 { model.pokeChrome(); return }
                     (fractionX < 0.5) != engine.rightToLeft ? model.previousPage() : model.nextPage()
-                },
-                onKeyEquivalent: { JumpKeys.handle($0, model: model) }
+                }
             ))
             .onAppear {
                 engine.spread = spread
@@ -126,28 +124,15 @@ struct ComicReaderView: View {
             .onChange(of: spread) { _, s in engine.spread = s }
         }
     }
-
-    private func handleKey(_ code: UInt16) -> Bool {
-        switch Int(code) {
-        case 123: engine.rightToLeft ? model.nextPage() : model.previousPage()
-        case 124: engine.rightToLeft ? model.previousPage() : model.nextPage()
-        case 125, 121, 49: model.nextPage()
-        case 126, 116: model.previousPage()
-        default: return false
-        }
-        return true
-    }
 }
 
-/// Captures keys, swipes and mouse movement for SwiftUI-rendered readers.
+/// Captures clicks, swipes and mouse movement for SwiftUI-rendered readers.
 struct EventCatcher: NSViewRepresentable {
-    var onKey: (UInt16) -> Bool
     var onSwipe: (Bool) -> Void
     var onMove: () -> Void
     var overlayRects: () -> [CGRect] = { [] }
     var rightToLeft: () -> Bool = { false }
     var onClick: ((CGFloat) -> Void)? = nil
-    var onKeyEquivalent: (NSEvent) -> Bool = { _ in false }
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
@@ -170,16 +155,6 @@ struct EventCatcher: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? {
             if let rects = handlers?.overlayRects(), isUnderOverlay(point, rects: rects) { return nil }
             return super.hitTest(point)
-        }
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if handlers?.onKeyEquivalent(event) == true { return true }
-            return super.performKeyEquivalent(with: event)
-        }
-
-        override func keyDown(with event: NSEvent) {
-            if event.modifierFlags.intersection([.command, .control, .option]).isEmpty, handlers?.onKey(event.keyCode) == true { return }
-            super.keyDown(with: event)
         }
 
         override func scrollWheel(with event: NSEvent) {
@@ -210,7 +185,8 @@ struct EventCatcher: NSViewRepresentable {
 
         override func mouseMoved(with event: NSEvent) {
             let y = convert(event.locationInWindow, from: nil).y
-            if y > bounds.height - 90 || y < 90 { handlers?.onMove() }
+            _ = y
+            handlers?.onMove()
         }
 
         override func mouseUp(with event: NSEvent) {

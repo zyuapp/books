@@ -11,6 +11,13 @@ enum ClaudeModel: String, CaseIterable, Identifiable {
         case .haiku: "Haiku"
         }
     }
+    var symbol: String {
+        switch self {
+        case .sonnet: "sparkle"
+        case .opus: "brain"
+        case .haiku: "bolt"
+        }
+    }
     var detail: String {
         switch self {
         case .sonnet: "Fast and thoughtful"

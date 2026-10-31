@@ -332,13 +332,27 @@
            end: offsetOf(range.endContainer, range.endOffset), rect: rectJSON(first), bounds: rectJSON(range.getBoundingClientRect()) });
   }
 
+  // The selection bar appears only once a drag ends; keyboard selections report after a pause.
+  let mouseIsDown = false;
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    mouseIsDown = true;
+    clearTimeout(selTimer);
+    post({ type: 'selectionCleared' });
+  }, true);
+  document.addEventListener('mouseup', (e) => {
+    if (e.button !== 0) return;
+    mouseIsDown = false;
+    clearTimeout(selTimer);
+    selTimer = setTimeout(reportSelection, 30);
+  }, true);
   document.addEventListener('selectionchange', () => {
+    if (mouseIsDown) return;
     clearTimeout(selTimer);
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) { post({ type: 'selectionCleared' }); return; }
-    selTimer = setTimeout(reportSelection, 350);
+    selTimer = setTimeout(reportSelection, 500);
   });
-  document.addEventListener('mouseup', () => { clearTimeout(selTimer); setTimeout(reportSelection, 10); });
 
   function isFootnote(a, target) {
     const type = (a.getAttribute('epub:type') || a.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || '') + ' ' + (a.getAttribute('role') || '');
@@ -427,25 +441,27 @@
       if (ready) requestAnimationFrame(() => { apply(anchor != null ? { textOffset: anchor } : { progression: 0 }); report(); });
     },
     go(target) { if (ready) { apply(target); report(); } else { pendingTarget = target; } },
-    next() {
+    next(animated) {
+      const anim = animated !== false;
       if (cfg.layout === 'paginated') {
-        if (page < pageCount() - 1) { goToPage(page + 1, true); return true; }
+        if (page < pageCount() - 1) { goToPage(page + 1, anim); return true; }
         return false;
       }
       if (cfg.layout === 'fixed') return false;
       const top = se().scrollTop;
       if (top >= maxScrollTop() - 2) return false;
-      se().scrollBy({ top: H() - 80, behavior: 'smooth' });
+      se().scrollBy({ top: H() - 80, behavior: anim ? 'smooth' : 'instant' });
       return true;
     },
-    prev() {
+    prev(animated) {
+      const anim = animated !== false;
       if (cfg.layout === 'paginated') {
-        if (page > 0) { goToPage(page - 1, true); return true; }
+        if (page > 0) { goToPage(page - 1, anim); return true; }
         return false;
       }
       if (cfg.layout === 'fixed') return false;
       if (se().scrollTop <= 2) return false;
-      se().scrollBy({ top: -(H() - 80), behavior: 'smooth' });
+      se().scrollBy({ top: -(H() - 80), behavior: anim ? 'smooth' : 'instant' });
       return true;
     },
     setHighlights,

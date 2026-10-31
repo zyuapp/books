@@ -402,8 +402,8 @@ struct ReaderSettingsPopover: View {
 
     private func labeledSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, icon: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 20).help(title)
-            Slider(value: value, in: range).controlSize(.small).tint(Color(hex: "#C96442"))
+            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 20).help(title).accessibilityHidden(true)
+            Slider(value: value, in: range).accessibilityLabel(title).controlSize(.small).tint(Color(hex: "#C96442"))
         }
     }
 }

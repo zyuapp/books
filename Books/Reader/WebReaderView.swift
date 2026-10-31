@@ -41,6 +41,8 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     private var lastTextOffset: Int?
     private var isReady = false
     private var loadID = 0
+    private let curl = PageCurl()
+    private var readyWaiter: CheckedContinuation<Void, Never>?
     var isDark = false
     var lastPrefs: ReaderPreferences?
 
@@ -90,7 +92,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             "layout": fixed ? "fixed" : p.layout.rawValue,
             "spread": p.spread.rawValue,
             "marginMin": p.margin,
-            "vmargin": 64,
+            "vmargin": 82,
             "maxWidth": Int(p.fontSize * 36 + p.margin * 2),
             "size": p.fontSize,
             "lineHeight": p.lineHeight,
@@ -141,7 +143,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         }
     }
 
-    private func load(_ index: Int, target: [String: Any]) {
+    private func load(_ index: Int, target: [String: Any], fade: Bool = true) {
         currentIndex = index
         pendingTarget = target
         isReady = false
@@ -149,29 +151,64 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         let fixed = currentIsFixed
         webView.isPaginated = prefs.layout == .paginated && !fixed
         installUserScripts(fixed: fixed)
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
-            webView.animator().alphaValue = 0
+        if fade {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                webView.animator().alphaValue = 0
+            }
         }
         webView.loadFileURL(publication.spine[index].url, allowingReadAccessTo: publication.rootDirectory)
     }
 
-    func next() {
+    func next() { turn(forward: true) }
+    func previous() { turn(forward: false) }
+
+    private func turn(forward: Bool) {
         guard isReady else { return }
-        webView.evaluateJavaScript("Reader.next()") { [weak self] result, error in
-            guard let self, (result as? Bool) == false else { return }
-            if self.currentIndex + 1 < self.publication.spine.count {
-                self.load(self.currentIndex + 1, target: ["progression": 0])
+        let animate = PageCurl.isEnabled && prefs.layout == .paginated
+        Task {
+            guard animate else { _ = await instantTurn(forward, smooth: prefs.pageTurnAnimation); return }
+            let token = curl.begin()
+            guard let before = await snapshot(), curl.isCurrent(token) else {
+                if curl.isCurrent(token) { _ = await instantTurn(forward) }
+                return
             }
+            let paper = NSColor(hex: prefs.theme.resolved(dark: isDark).background)
+            curl.cover(webView, with: before, paper: paper)
+            let moved = await instantTurn(forward)
+            guard moved, curl.isCurrent(token) else {
+                if curl.isCurrent(token) { curl.remove() }
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(45))
+            guard curl.isCurrent(token), let after = await snapshot(), curl.isCurrent(token) else {
+                if curl.isCurrent(token) { curl.remove() }
+                return
+            }
+            await curl.animate(from: before, to: after, forward: forward, paper: paper, token: token)
+            if curl.isCurrent(token) { curl.remove() }
         }
     }
 
-    func previous() {
-        guard isReady else { return }
-        webView.evaluateJavaScript("Reader.prev()") { [weak self] result, _ in
-            guard let self, (result as? Bool) == false else { return }
-            if self.currentIndex > 0 { self.load(self.currentIndex - 1, target: ["end": true]) }
+    /// Turns one page without animation, crossing into the next or previous chapter. False at the book's edge.
+    private func instantTurn(_ forward: Bool, smooth: Bool = false) async -> Bool {
+        if isReady {
+            let moved = (try? await webView.evaluateJavaScript("Reader.\(forward ? "next" : "prev")(\(smooth))")) as? Bool
+            if moved == true { return true }
         }
+        let target = forward ? currentIndex + 1 : currentIndex - 1
+        guard publication.spine.indices.contains(target) else { return false }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            readyWaiter?.resume()
+            readyWaiter = c
+            load(target, target: forward ? ["progression": 0] : ["end": true], fade: !PageCurl.isEnabled)
+        }
+        return true
+    }
+
+    private func snapshot() async -> CGImage? {
+        guard webView.bounds.width > 0, let image = try? await webView.takeSnapshot(configuration: nil) else { return nil }
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     func refreshHighlights() {
@@ -214,18 +251,25 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         switch type {
         case "ready":
             isReady = true
-            if let target = pendingTarget { webView.evaluateJavaScript("Reader.go(\(Self.json(target)))") }
+            let waiter = readyWaiter
+            readyWaiter = nil
+            if let target = pendingTarget {
+                webView.evaluateJavaScript("Reader.go(\(Self.json(target)))") { _, _ in waiter?.resume() }
+            } else {
+                waiter?.resume()
+            }
             pendingTarget = nil
             refreshHighlights()
             if let find = pendingFind {
                 webView.evaluateJavaScript("Reader.find(\(Self.json(find.query)), \(find.occurrence))")
                 pendingFind = nil
             }
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.22
-                webView.animator().alphaValue = 1
+            if webView.alphaValue < 1 {
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.22
+                    webView.animator().alphaValue = 1
+                }
             }
-            webView.window?.makeFirstResponder(webView)
         case "location":
             let offset = body["textOffset"] as? Int
             lastTextOffset = offset
@@ -344,7 +388,7 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// Keyboard and trackpad page turning, plus reader items in the context menu.
+/// Trackpad and wheel page turning, plus reader items in the context menu.
 final class ReaderWebView: WKWebView {
     weak var engine: WebEngine?
     var isPaginated = true
@@ -368,53 +412,19 @@ final class ReaderWebView: WKWebView {
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
         guard window != nil else { return }
         // WebKit consumes key and wheel events internally, so intercept them before dispatch.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel, .mouseMoved]) { [weak self] event in
-            guard let self, event.window === self.window else { return event }
-            switch event.type {
-            case .keyDown:
-                guard let responder = self.window?.firstResponder as? NSView, responder === self || responder.isDescendant(of: self)
-                else { return event }
-                return self.handleKey(event) ? nil : event
-            case .scrollWheel:
-                let p = self.convert(event.locationInWindow, from: nil)
-                guard self.bounds.contains(p), self.isPaginated else { return event }
-                return self.handleWheel(event) ? nil : event
-            case .mouseMoved:
-                let p = self.convert(event.locationInWindow, from: nil)
-                if self.bounds.contains(p), p.y > self.bounds.height - 90 || p.y < 90 { self.model?.pokeChrome() }
-                return event
-            default: return event
-            }
+        // WebKit consumes wheel events internally, so intercept them before dispatch.
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+            guard let self, event.window === self.window, self.isPaginated else { return event }
+            let p = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(p), !self.isUnderOverlay(self.superview?.convert(event.locationInWindow, from: nil) ?? p,
+                                                                rects: self.model?.overlayRects ?? []) else { return event }
+            return self.handleWheel(event) ? nil : event
         }
     }
 
     override func removeFromSuperview() {
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
         super.removeFromSuperview()
-    }
-
-    private func handleKey(_ event: NSEvent) -> Bool {
-        guard let model else { return false }
-        if JumpKeys.handle(event, model: model) { return true }
-        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
-        let rtl = model.publication?.rightToLeft == true
-        switch Int(event.keyCode) {
-        case 123: rtl ? model.nextPage() : model.previousPage()
-        case 124: rtl ? model.previousPage() : model.nextPage()
-        case 125 where isPaginated, 121: model.nextPage()
-        case 126 where isPaginated, 116: model.previousPage()
-        case 49: event.modifierFlags.contains(.shift) ? model.previousPage() : model.nextPage()
-        case 53:
-            if model.selection != nil || model.footnote != nil {
-                model.selection = nil
-                model.footnote = nil
-                engine?.clearSelection()
-            } else if model.showClaude || model.panel != nil {
-                withAnimation(.spring(duration: 0.35)) { model.showClaude = false; model.panel = nil }
-            } else { return false }
-        default: return false
-        }
-        return true
     }
 
     private func handleWheel(_ event: NSEvent) -> Bool {

@@ -108,6 +108,7 @@ struct RootView: View {
             LibraryStore.shared.start()
             OpenBridge.shared.attach(openWindow)
         }
+        .background(FullScreenEnabler())
         // SwiftUI routes Finder "Open" events here once a window exists.
         .onOpenURL { url in
             if url.isFileURL { AppActions.open(url) }
@@ -191,16 +192,27 @@ struct BooksCommands: Commands {
     @FocusedValue(\.readerModel) private var reader
 
     var body: some Commands {
+        CommandGroup(before: .windowSize) {
+            Button("Toggle Full Screen") {
+                (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .control])
+        }
         CommandGroup(replacing: .newItem) {
             Button("Open…") { AppActions.openFiles() }.keyboardShortcut("o")
             Button("Add to Library…") { AppActions.addBooks() }.keyboardShortcut("o", modifiers: [.command, .shift])
             Divider()
             Button("Show Library") { OpenBridge.shared.showLibrary(); OpenBridge.shared.openLibrary() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
+            Button("Close Book  ⌘W") { OpenBridge.shared.showLibrary() }
+                .disabled(reader == nil)
         }
         CommandMenu("Go") {
-            Button("Next Page") { reader?.nextPage() }.disabled(reader == nil)
-            Button("Previous Page") { reader?.previousPage() }.disabled(reader == nil)
+            Button("Next Page  →") { reader?.nextPage() }.disabled(reader == nil)
+            Button("Previous Page  ←") { reader?.previousPage() }.disabled(reader == nil)
+            Button("Next Chapter  ⌥→") { reader?.goToChapter(offset: 1) }.disabled(reader == nil)
+            Button("Previous Chapter  ⌥←") { reader?.goToChapter(offset: -1) }.disabled(reader == nil)
+            Button("Beginning of Book") { reader?.goToStart() }.disabled(reader == nil)
             Divider()
             Button("Undo Jump — Back to Previous Location") { reader?.goBack() }.keyboardShortcut("[")
                 .disabled(reader?.canGoBack != true)
@@ -236,11 +248,25 @@ struct BooksCommands: Commands {
                 .keyboardShortcut("=")
             Button("Smaller Text") { ReaderSettings.shared.prefs.fontSize = max(12, ReaderSettings.shared.prefs.fontSize - 1) }
                 .keyboardShortcut("-")
+            Button("Default Text Size") { ReaderSettings.shared.prefs.fontSize = ReaderPreferences().fontSize }
+                .keyboardShortcut("0")
         }
     }
 
     private func toggle(_ panel: ReaderPanel) {
         guard let reader else { return }
         withAnimation(.spring(duration: 0.4)) { reader.panel = reader.panel == panel ? nil : panel }
+    }
+}
+
+/// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default).
+private struct FullScreenEnabler: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { view.window?.collectionBehavior.insert(.fullScreenPrimary) }
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {
+        view.window?.collectionBehavior.insert(.fullScreenPrimary)
     }
 }

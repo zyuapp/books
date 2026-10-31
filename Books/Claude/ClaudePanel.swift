@@ -156,21 +156,29 @@ struct ClaudePanel: View {
     @State private var showHistory = false
     @FocusState private var inputFocused: Bool
 
+    private static let accent = Color(hex: "#C96442")
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().opacity(0.4)
+        ZStack {
             if showHistory {
                 history
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             } else {
-                conversation
-                composer
+                VStack(spacing: 0) {
+                    header
+                    Divider().opacity(0.35)
+                    conversation
+                    composer
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .frame(width: 390)
+        .animation(.smooth(duration: 0.3), value: showHistory)
+        .frame(width: 400)
         .glassEffect(.regular.tint(theme.backgroundColor.opacity(0.6)), in: .rect(cornerRadius: 26))
+        .clipShape(.rect(cornerRadius: 26))
         .readerOverlay()
-        .shadow(color: .black.opacity(0.12), radius: 30, y: 10)
+        .shadow(color: .black.opacity(0.14), radius: 30, y: 10)
         .onChange(of: reader.claudeDraft) { _, seed in
             if let seed { chat.begin(with: seed); showHistory = false; reader.claudeDraft = nil; inputFocused = true }
         }
@@ -180,42 +188,32 @@ struct ClaudePanel: View {
         }
     }
 
+    // MARK: Header
+
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LinearGradient(colors: [Color(hex: "#D97757"), Color(hex: "#C15F3C")], startPoint: .top, endPoint: .bottom))
-            Text("Ask Claude").font(.headline)
-            Spacer()
-            Menu {
-                Picker("Model", selection: $chat.model) {
-                    ForEach(ClaudeModel.allCases) { m in
-                        Text("\(m.name) — \(m.detail)").tag(m)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Text(chat.model.name).font(.callout.weight(.medium))
+            ClaudeAvatar(size: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Claude").font(.system(size: 14, weight: .semibold))
+                Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "") : "Reading companion")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .menuStyle(.button)
-            .buttonStyle(.glass)
-            .fixedSize()
-            Button { withAnimation(.snappy) { showHistory.toggle() } } label: {
-                Image(systemName: showHistory ? "bubble.left.and.bubble.right.fill" : "clock.arrow.circlepath")
+            Spacer(minLength: 8)
+            PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations",
+                            badge: reader.state.liveChats.count) { showHistory = true }
+            PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
+                chat.newThread()
+                inputFocused = true
             }
-            .buttonStyle(.glass)
-            .help("Past conversations")
-            Button { chat.newThread(); showHistory = false; inputFocused = true } label: { Image(systemName: "square.and.pencil") }
-                .buttonStyle(.glass)
-                .help("New conversation")
-            Button { withAnimation(.spring(duration: 0.35)) { reader.showClaude = false } } label: { Image(systemName: "xmark") }
-                .buttonStyle(.glass)
-                .help("Close")
+            PanelIconButton(symbol: "xmark", label: "Close") {
+                withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
+            }
         }
-        .controlSize(.small)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
+
+    // MARK: Conversation
 
     private var conversation: some View {
         ScrollViewReader { proxy in
@@ -251,99 +249,173 @@ struct ClaudePanel: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(chat.thread?.passage == nil ? "Ask anything about what you’re reading." : "What would you like to know about this passage?")
-                .font(.system(.title3, design: .serif))
-                .foregroundStyle(.secondary)
-            FlowLayout(spacing: 8) {
-                ForEach(ClaudeQuickAction.allCases) { action in
-                    if chat.thread?.passage != nil || action != .define {
-                        Button {
-                            chat.send(action.prompt(hasPassage: chat.thread?.passage != nil))
-                        } label: {
-                            Label(action.title, systemImage: action.symbol).font(.callout)
+        let hasPassage = chat.thread?.passage != nil
+        return VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(hasPassage ? "What would you like to know?" : "Ask about \(reader.title)")
+                    .font(.system(.title3, design: .serif).weight(.semibold))
+                    .lineLimit(2)
+                Text(hasPassage ? "Pick a starting point or type your own question."
+                                : "Claude can see the \(chat.scope == .book ? "whole book" : "chapter you’re reading").")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            VStack(spacing: 6) {
+                ForEach(ClaudeQuickAction.allCases.filter { hasPassage || $0 != .define }) { action in
+                    Button { chat.send(action.prompt(hasPassage: hasPassage)) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: action.symbol)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Self.accent)
+                                .frame(width: 28, height: 28)
+                                .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(action.title).font(.system(size: 13, weight: .medium))
+                                Text(action.subtitle(hasPassage: hasPassage)).font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.glass)
+                        .padding(8)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(HoverRowStyle())
                 }
             }
         }
-        .padding(.top, 4)
+        .padding(.top, 2)
     }
 
+    // MARK: Composer
+
     private var composer: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
+                      text: $chat.input, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13.5))
+                .lineLimit(1...7)
+                .focused($inputFocused)
+                .onSubmit { chat.send() }
+                .accessibilityLabel("Question for Claude")
             HStack(spacing: 6) {
-                Text("Context").font(.caption).foregroundStyle(.secondary)
-                Picker("Context", selection: $chat.scope) {
-                    ForEach(ClaudeScope.allCases.filter { $0 != .passage || chat.thread?.passage != nil }, id: \.self) { s in
-                        Text(s == .passage ? "Passage only" : s.label).tag(s)
+                Menu {
+                    Picker("Context", selection: $chat.scope) {
+                        ForEach(ClaudeScope.allCases.filter { $0 != .passage || chat.thread?.passage != nil }, id: \.self) { s in
+                            Label(s == .passage ? "Selection Only" : s.label, systemImage: s.symbol).tag(s)
+                        }
                     }
+                    .pickerStyle(.inline)
+                } label: {
+                    Chip(symbol: chat.scope.symbol, title: chat.scope == .passage ? "Selection" : chat.scope.label)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask a question…", text: $chat.input, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...6)
-                    .focused($inputFocused)
-                    .onSubmit { chat.send() }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("What Claude can read")
+
+                Menu {
+                    Picker("Model", selection: $chat.model) {
+                        ForEach(ClaudeModel.allCases) { m in
+                            Label { Text("\(m.name) — \(m.detail)") } icon: { Image(systemName: m.symbol) }.tag(m)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Chip(symbol: chat.model.symbol, title: chat.model.name)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Claude model")
+
+                Spacer()
+
                 if chat.isStreaming {
-                    Button { chat.cancel() } label: { Image(systemName: "stop.fill").frame(width: 18, height: 18) }
-                        .buttonStyle(.glass)
-                        .controlSize(.large)
-                        .help("Stop")
+                    Button { chat.cancel() } label: {
+                        Image(systemName: "stop.fill").font(.system(size: 11, weight: .bold))
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(.primary.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop")
+                    .accessibilityLabel("Stop")
                 } else {
-                    Button { chat.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 18, height: 18) }
-                        .buttonStyle(.glassProminent)
-                        .tint(Color(hex: "#C96442"))
-                        .controlSize(.large)
-                        .disabled(chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .keyboardShortcut(.return, modifiers: .command)
+                    let empty = chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    Button { chat.send() } label: {
+                        Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(empty ? AnyShapeStyle(.gray.opacity(0.4)) : AnyShapeStyle(Self.accent.gradient)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(empty)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("Send (↩)")
+                    .accessibilityLabel("Send")
                 }
             }
         }
-        .padding(14)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.background.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.55) : .primary.opacity(0.1), lineWidth: 1))
+        .animation(.easeOut(duration: 0.15), value: inputFocused)
+        .padding(12)
     }
+
+    // MARK: History
 
     private var history: some View {
         let threads = reader.state.liveChats
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                if threads.isEmpty {
-                    Text("No conversations yet.").foregroundStyle(.secondary).padding(.top, 30).frame(maxWidth: .infinity)
+        return VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Button { showHistory = false } label: {
+                    Label("Back", systemImage: "chevron.left").font(.system(size: 13, weight: .medium))
                 }
-                ForEach(threads) { t in
-                    Button {
-                        chat.open(t)
-                        withAnimation(.snappy) { showHistory = false }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(t.title).font(.callout.weight(.medium)).lineLimit(2)
-                            HStack {
-                                Text(t.updated, style: .relative)
-                                Text("·")
-                                Text("\(t.messages.count) messages")
-                            }
-                            .font(.caption).foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 14))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Delete Conversation", role: .destructive) { chat.delete(t) }
-                    }
+                .buttonStyle(.plain)
+                .foregroundStyle(Self.accent)
+                .keyboardShortcut(.cancelAction)
+                Spacer()
+                Text("Conversations").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
+                    chat.newThread()
+                    showHistory = false
+                    inputFocused = true
                 }
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            Divider().opacity(0.35)
+
+            if threads.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .font(.system(size: 34, weight: .light)).foregroundStyle(.tertiary)
+                    Text("No conversations yet").font(.headline)
+                    Text("Questions you ask about this book will be kept here, on every Mac.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .padding(30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(threads) { t in
+                            HistoryRow(thread: t, isCurrent: t.id == chat.thread?.id,
+                                       open: { chat.open(t); showHistory = false },
+                                       delete: { withAnimation(.snappy) { chat.delete(t) } })
+                        }
+                    }
+                    .padding(10)
+                }
+                .scrollEdgeEffectStyle(.soft, for: .all)
+                Text("\(threads.count) conversation\(threads.count == 1 ? "" : "s") · synced with iCloud")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .padding(.bottom, 12)
+            }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func copy(_ text: String) {
@@ -363,6 +435,152 @@ struct ClaudePanel: View {
             }
         }
         reader.engine?.refreshHighlights()
+    }
+}
+
+struct ClaudeAvatar: View {
+    var size: CGFloat = 28
+
+    var body: some View {
+        Image(systemName: "sparkles")
+            .font(.system(size: size * 0.46, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Circle().fill(LinearGradient(colors: [Color(hex: "#E08A68"), Color(hex: "#B8532F")],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing)))
+            .accessibilityHidden(true)
+    }
+}
+
+private struct PanelIconButton: View {
+    let symbol: String
+    let label: String
+    var badge: Int = 0
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(.primary.opacity(hovering ? 0.1 : 0)))
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        Text("\(badge)")
+                            .font(.system(size: 8.5, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 3.5).frame(minWidth: 13, minHeight: 13)
+                            .background(Capsule().fill(Color(hex: "#C96442")))
+                            .offset(x: 3, y: -2)
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct Chip: View {
+    let symbol: String
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold))
+            Text(title).font(.system(size: 11.5, weight: .medium))
+            Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+        .background(Capsule().fill(.primary.opacity(0.08)))
+        .contentShape(Capsule())
+    }
+}
+
+private struct HoverRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverRow(configuration: configuration)
+    }
+
+    private struct HoverRow: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hovering = false
+        var body: some View {
+            configuration.label
+                .background(RoundedRectangle(cornerRadius: 12).fill(.primary.opacity(configuration.isPressed ? 0.12 : hovering ? 0.07 : 0.035)))
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+private struct HistoryRow: View {
+    let thread: ChatThread
+    let isCurrent: Bool
+    let open: () -> Void
+    let delete: () -> Void
+    @State private var hovering = false
+    @State private var confirming = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: thread.passage != nil ? "text.quote" : "bubble.left.and.text.bubble.right")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: "#C96442"))
+                .frame(width: 28, height: 28)
+                .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                if let last = thread.messages.last(where: { $0.role == .assistant }) {
+                    Text(Markdown.attributed(last.text.replacingOccurrences(of: "\n", with: " ")))
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                HStack(spacing: 4) {
+                    Text(thread.updated, format: .relative(presentation: .named))
+                    Text("·")
+                    Text("\(thread.messages.count) message\(thread.messages.count == 1 ? "" : "s")")
+                    if isCurrent { Text("· Open").foregroundStyle(Color(hex: "#C96442")) }
+                }
+                .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 4)
+            if confirming {
+                VStack(spacing: 4) {
+                    Button("Delete", role: .destructive, action: delete)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .controlSize(.small)
+                    Button("Cancel") { withAnimation(.snappy) { confirming = false } }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+                Button { withAnimation(.snappy) { confirming = true } } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(hovering ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Delete Conversation")
+                .accessibilityLabel("Delete conversation")
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 14).fill(.primary.opacity(hovering ? 0.07 : isCurrent ? 0.05 : 0)))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .onHover { hovering = $0; if !$0 { confirming = false } }
+        .contextMenu {
+            Button("Open", systemImage: "arrow.right.circle", action: open)
+            Button("Delete Conversation", systemImage: "trash", role: .destructive, action: delete)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Open", open)
     }
 }
 
@@ -424,18 +642,16 @@ private struct MessageView: View {
             VStack(alignment: .leading, spacing: 6) {
                 MarkdownText(text: message.text + (streaming ? " ▍" : ""))
                 if !streaming {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 2) {
                         if let onCopy {
-                            Button(action: onCopy) { Image(systemName: "doc.on.doc") }.help("Copy")
+                            Button(action: onCopy) { Label("Copy", systemImage: "doc.on.doc") }
                         }
                         if let onSaveNote {
-                            Button(action: onSaveNote) { Image(systemName: "note.text.badge.plus") }.help("Save to Notes")
+                            Button(action: onSaveNote) { Label("Save to Notes", systemImage: "note.text.badge.plus") }
                         }
                     }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .opacity(hovering ? 1 : 0)
+                    .buttonStyle(MessageActionStyle())
+                    .opacity(hovering ? 1 : 0.0)
                 }
             }
             .onHover { hovering = $0 }
@@ -509,5 +725,16 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+private struct MessageActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Capsule().fill(.primary.opacity(configuration.isPressed ? 0.14 : 0.06)))
     }
 }

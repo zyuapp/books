@@ -57,6 +57,10 @@ final class PDFEngine: NSObject, ReaderEngine {
         applySettings()
         refreshHighlights()
         let center = NotificationCenter.default
+        pdfView.postsFrameChangedNotifications = true
+        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: pdfView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.fitPages() }
+        })
         observers.append(center.addObserver(forName: .PDFViewPageChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.pageChanged() }
         })
@@ -90,11 +94,14 @@ final class PDFEngine: NSObject, ReaderEngine {
         pdfView.displaysAsBook = twoUp
         pdfView.backgroundColor = NSColor(hex: theme.background).blended(withFraction: theme.isDark ? 0.0 : 0.04, of: .black) ?? .windowBackgroundColor
         pdfView.isPaginated = p.layout == .paginated
-        pdfView.autoScales = true
+        fitPages()
         applyDimming(p.dimPDFInDarkThemes && theme.isDark)
     }
 
+    private var isDimmed = false
+
     private func applyDimming(_ on: Bool) {
+        isDimmed = on
         pdfView.wantsLayer = true
         pdfView.layerUsesCoreImageFilters = true
         guard let layer = pdfView.documentView?.layer ?? pdfView.layer else { return }
@@ -104,6 +111,21 @@ final class PDFEngine: NSObject, ReaderEngine {
         } else {
             layer.filters = nil
         }
+    }
+
+    /// Paged mode shows whole pages (fit to window, below the toolbar); scroll mode fits the width.
+    private func fitPages() {
+        guard pdfView.isPaginated, let page = pdfView.currentPage ?? document?.page(at: 0) else {
+            pdfView.autoScales = true
+            return
+        }
+        let size = page.bounds(for: pdfView.displayBox).size
+        guard size.width > 0, size.height > 0, pdfView.bounds.width > 0 else { return }
+        let columns: CGFloat = pdfView.displayMode == .twoUp ? 2 : 1
+        let availableW = pdfView.bounds.width - 60
+        let availableH = pdfView.bounds.height - 130
+        pdfView.autoScales = false
+        pdfView.scaleFactor = max(0.1, min(availableW / (size.width * columns), availableH / size.height))
     }
 
     private var currentPageIndex: Int {
@@ -132,16 +154,78 @@ final class PDFEngine: NSObject, ReaderEngine {
         suppressJumpRecording = false
     }
 
-    func next() {
-        suppressJumpRecording = true
-        if pdfView.canGoToNextPage { pdfView.goToNextPage(nil) }
-        suppressJumpRecording = false
+    func next() { turn(forward: true) }
+    func previous() { turn(forward: false) }
+
+    private let curl = PageCurl()
+
+    private func turn(forward: Bool) {
+        guard forward ? pdfView.canGoToNextPage : pdfView.canGoToPreviousPage else { return }
+        let step = {
+            self.suppressJumpRecording = true
+            forward ? self.pdfView.goToNextPage(nil) : self.pdfView.goToPreviousPage(nil)
+            self.suppressJumpRecording = false
+        }
+        guard PageCurl.isEnabled, pdfView.isPaginated, let before = snapshot() else {
+            _ = curl.begin()
+            step()
+            return
+        }
+        let token = curl.begin()
+        let paper = pdfView.backgroundColor
+        curl.cover(pdfView, with: before, paper: paper)
+        step()
+        Task {
+            try? await Task.sleep(for: .milliseconds(30))
+            guard curl.isCurrent(token), let after = snapshot() else {
+                if curl.isCurrent(token) { curl.remove() }
+                return
+            }
+            await curl.animate(from: before, to: after, forward: forward, paper: paper, token: token)
+            if curl.isCurrent(token) { curl.remove() }
+        }
     }
 
-    func previous() {
-        suppressJumpRecording = true
-        if pdfView.canGoToPreviousPage { pdfView.goToPreviousPage(nil) }
-        suppressJumpRecording = false
+    /// Renders the visible pages as they sit in the view (PDFKit's layers don't show up in cacheDisplay).
+    private func snapshot() -> CGImage? {
+        let bounds = pdfView.bounds
+        let scale = pdfView.window?.backingScaleFactor ?? 2
+        guard bounds.width > 0, let document else { return nil }
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(bounds.width * scale),
+                                         pixelsHigh: Int(bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        rep.size = bounds.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        pdfView.backgroundColor.setFill()
+        bounds.fill()
+        for page in pdfView.visiblePages {
+            let rect = pdfView.convert(page.bounds(for: pdfView.displayBox), from: page)
+            guard rect.intersects(bounds) else { continue }
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+            shadow.shadowBlurRadius = 8
+            shadow.shadowOffset = NSSize(width: 0, height: -2)
+            shadow.set()
+            (isDimmed ? NSColor.black : NSColor.white).setFill()
+            rect.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            let thumb = page.thumbnail(of: NSSize(width: rect.width * scale, height: rect.height * scale), for: pdfView.displayBox)
+            (isDimmed ? dimmed(thumb) : thumb).draw(in: rect)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        _ = document
+        return rep.cgImage
+    }
+
+    /// Inverts a page image the way the live dark-theme filter does.
+    private func dimmed(_ image: NSImage) -> NSImage {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+        let out = CIImage(cgImage: cg).applyingFilter("CIColorInvert").applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: Float.pi])
+        guard let result = CIContext().createCGImage(out, from: out.extent) else { return image }
+        return NSImage(cgImage: result, size: image.size)
     }
 
     func refreshHighlights() {
@@ -214,8 +298,8 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     // MARK: Selection
 
-    private func selectionChanged() {
-        guard let model else { return }
+    func selectionChanged() {
+        guard let model, !pdfView.isTrackingMouse else { return }
         guard let sel = pdfView.currentSelection, let text = sel.string,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let page = sel.pages.first, let document else {
@@ -247,6 +331,7 @@ final class PDFEngine: NSObject, ReaderEngine {
 final class ReaderPDFView: PDFView {
     weak var engine: PDFEngine?
     var isPaginated = true
+    private(set) var isTrackingMouse = false
     private var accumulated = CGSize.zero
     private var gestureFired = false
     private var lastWheelTurn = Date.distantPast
@@ -263,11 +348,6 @@ final class ReaderPDFView: PDFView {
         super.go(to: destination)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let model, JumpKeys.handle(event, model: model) { return true }
-        return super.performKeyEquivalent(with: event)
-    }
-
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let page = page(for: point, nearest: false) {
@@ -277,28 +357,13 @@ final class ReaderPDFView: PDFView {
                 return
             }
         }
+        isTrackingMouse = true
         super.mouseDown(with: event)
+        isTrackingMouse = false
+        MainActor.assumeIsolated { engine?.selectionChanged() }
         // super runs the tracking loop; a plain click that selected nothing toggles the chrome.
         if event.clickCount == 1, currentSelection?.string?.isEmpty ?? true, let model {
             MainActor.assumeIsolated { model.toggleChrome() }
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard let model, event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
-            super.keyDown(with: event); return
-        }
-        switch Int(event.keyCode) {
-        case 123 where isPaginated: model.previousPage()
-        case 124 where isPaginated: model.nextPage()
-        case 125 where isPaginated, 121: model.nextPage()
-        case 126 where isPaginated, 116: model.previousPage()
-        case 49 where isPaginated: event.modifierFlags.contains(.shift) ? model.previousPage() : model.nextPage()
-        case 53:
-            if model.selection != nil { model.selection = nil; clearSelection() }
-            else if model.showClaude || model.panel != nil { withAnimation(.spring(duration: 0.35)) { model.showClaude = false; model.panel = nil } }
-            else { super.keyDown(with: event) }
-        default: super.keyDown(with: event)
         }
     }
 
@@ -334,7 +399,8 @@ final class ReaderPDFView: PDFView {
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         let y = convert(event.locationInWindow, from: nil).y
-        if y > bounds.height - 90 || y < 90 { model?.pokeChrome() }
+        _ = y
+        model?.pokeChrome()
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
