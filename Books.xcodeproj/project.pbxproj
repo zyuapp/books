@@ -250,7 +250,6 @@
 				};
 			};
 			buildConfigurationList = C59A9F34BB98290D49F6F9CA /* Build configuration list for PBXProject "Books" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -260,6 +259,7 @@
 			mainGroup = 3BD16B3E97AFDE1379874B65;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 14E0B303C0A68D907CF8B7D4 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -396,7 +396,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zyu.books;
 				PRODUCT_NAME = Books;
 				SDKROOT = macosx;
@@ -420,7 +420,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zyu.books;
 				PRODUCT_NAME = Books;
 				SDKROOT = macosx;
