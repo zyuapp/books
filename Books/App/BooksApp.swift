@@ -26,7 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Writing a large prompt to a Claude process that already exited must not kill the app.
         signal(SIGPIPE, SIG_IGN)
-        Task { @MainActor in LibraryStore.shared.start() }
+        Task { @MainActor in
+            LibraryStore.shared.start()
+            Updater.shared.start()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -39,7 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { LibraryStore.shared.flushAll() }
+        MainActor.assumeIsolated {
+            LibraryStore.shared.flushAll()
+            Updater.shared.installOnQuit()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -194,6 +200,9 @@ struct BooksCommands: Commands {
     @FocusedValue(\.readerModel) private var reader
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Task { await Updater.shared.check(interactive: true) } }
+        }
         CommandGroup(before: .windowSize) {
             Button("Toggle Full Screen") {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)

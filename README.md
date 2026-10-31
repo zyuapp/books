@@ -16,7 +16,9 @@ Requires macOS 26.
 curl -fsSL https://raw.githubusercontent.com/zyuapp/books/main/install.sh | sh
 ```
 
-Or download `Books.dmg` from the [latest release](https://github.com/zyuapp/books/releases/latest) and drag Books to Applications. To make Books the default for your books, open **Books → Settings → General → Make Books the Default for eBooks**.
+Or download `Books.dmg` from the [latest release](https://github.com/zyuapp/books/releases/latest) and drag Books to Applications.
+
+Books updates itself. It checks for new releases at launch and every 6 hours, downloads them in the background, and verifies the checksum and that the update is signed by the same developer. The update installs when Books quits, or by a quiet relaunch back onto the same page after Books has sat in the background for 10 minutes. **Books → Check for Updates…** checks right away. To make Books the default for your books, open **Books → Settings → General → Make Books the Default for eBooks**.
 
 ## Your library
 
