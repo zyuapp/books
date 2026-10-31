@@ -38,17 +38,48 @@ func render(_ px: Int) -> Data {
     ctx.drawRadialGradient(glow, startCenter: CGPoint(x: rect.midX, y: rect.midY + 40 * s), startRadius: 0,
                            endCenter: CGPoint(x: rect.midX, y: rect.midY + 40 * s), endRadius: 420 * s, options: [])
 
-    // Book glyph.
-    let config = NSImage.SymbolConfiguration(pointSize: 440 * s, weight: .medium)
-        .applying(.init(paletteColors: [NSColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1)]))
-    if let symbol = NSImage(systemSymbolName: "text.book.closed.fill", accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-        let sz = symbol.size
-        let r = CGRect(x: rect.midX - sz.width / 2, y: rect.midY - sz.height / 2 - 10 * s, width: sz.width, height: sz.height)
-        ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -14 * s), blur: 30 * s, color: NSColor(srgbRed: 0.3, green: 0.1, blue: 0.05, alpha: 0.55).cgColor)
-        symbol.draw(in: r)
-        ctx.restoreGState()
+    // Book glyph, drawn by hand: a closed book with page edges and a ribbon.
+    let cream = NSColor(srgbRed: 1, green: 0.97, blue: 0.9, alpha: 1).cgColor
+    let pageTint = NSColor(srgbRed: 0.93, green: 0.86, blue: 0.76, alpha: 1).cgColor
+    let ribbon = NSColor(srgbRed: 0.62, green: 0.2, blue: 0.13, alpha: 1).cgColor
+    let book = CGRect(x: rect.midX - 175 * s, y: rect.midY - 235 * s, width: 350 * s, height: 460 * s)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -14 * s), blur: 30 * s,
+                  color: NSColor(srgbRed: 0.3, green: 0.1, blue: 0.05, alpha: 0.55).cgColor)
+    // Page block peeking out on the right and bottom.
+    let pages = CGPath(roundedRect: book.offsetBy(dx: 18 * s, dy: -18 * s), cornerWidth: 34 * s, cornerHeight: 34 * s, transform: nil)
+    ctx.addPath(pages); ctx.setFillColor(pageTint); ctx.fillPath()
+    // Cover.
+    let cover = CGPath(roundedRect: book, cornerWidth: 38 * s, cornerHeight: 38 * s, transform: nil)
+    ctx.addPath(cover); ctx.setFillColor(cream); ctx.fillPath()
+    ctx.restoreGState()
+    // Page lines on the edge.
+    ctx.setStrokeColor(NSColor(srgbRed: 0.78, green: 0.66, blue: 0.54, alpha: 1).cgColor)
+    ctx.setLineWidth(3 * s)
+    for i in 1...3 {
+        let y = book.minY - CGFloat(i) * 4.5 * s
+        ctx.move(to: CGPoint(x: book.minX + 40 * s, y: y)); ctx.addLine(to: CGPoint(x: book.maxX + 10 * s, y: y))
     }
+    ctx.strokePath()
+    // Spine groove.
+    ctx.setFillColor(NSColor(srgbRed: 0.85, green: 0.76, blue: 0.64, alpha: 1).cgColor)
+    ctx.fill(CGRect(x: book.minX + 58 * s, y: book.minY + 24 * s, width: 10 * s, height: book.height - 48 * s))
+    // Title bars.
+    ctx.setFillColor(NSColor(srgbRed: 0.78, green: 0.39, blue: 0.26, alpha: 0.85).cgColor)
+    for (dy, w) in [(150.0, 170.0), (110.0, 120.0)] {
+        let bar = CGRect(x: book.minX + 110 * s, y: book.maxY - CGFloat(dy) * s, width: CGFloat(w) * s, height: 22 * s)
+        ctx.addPath(CGPath(roundedRect: bar, cornerWidth: 11 * s, cornerHeight: 11 * s, transform: nil)); ctx.fillPath()
+    }
+    // Ribbon.
+    let rx = book.maxX - 90 * s
+    ctx.beginPath()
+    ctx.move(to: CGPoint(x: rx, y: book.maxY))
+    ctx.addLine(to: CGPoint(x: rx + 46 * s, y: book.maxY))
+    ctx.addLine(to: CGPoint(x: rx + 46 * s, y: book.maxY - 150 * s))
+    ctx.addLine(to: CGPoint(x: rx + 23 * s, y: book.maxY - 126 * s))
+    ctx.addLine(to: CGPoint(x: rx, y: book.maxY - 150 * s))
+    ctx.closePath()
+    ctx.setFillColor(ribbon); ctx.fillPath()
 
     // Glass sheen across the top half and a hairline rim.
     let sheen = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),

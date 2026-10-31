@@ -113,7 +113,7 @@ enum TextParser {
                 if case .heading(let level, let t) = block, level == splitLevel + 1 {
                     subs.append(TOCEntry(title: Markdown.plain(t), spineIndex: i, fragment: "md-\(j)"))
                 }
-                body += Markdown.html(block, id: "md-\(j)", base: base)
+                body += Markdown.html(block, id: "md-\(j)", image: { Markdown.localImage($0, base: base, into: dir) })
             }
             let file = dir.appendingPathComponent("md\(i).html")
             let html = HTMLTemplate.document(title: chapter.title, body: body,
@@ -124,7 +124,7 @@ enum TextParser {
         }
         return Publication(kind: .reflowable, title: title ?? url.deletingPathExtension().lastPathComponent,
                            author: nil, language: nil, spine: spine, toc: toc, coverURL: nil,
-                           rootDirectory: URL(fileURLWithPath: "/"), sourceURL: url)
+                           rootDirectory: dir, sourceURL: url)
     }
 
     static func decodeText(_ url: URL) throws -> String {
@@ -276,34 +276,47 @@ enum Markdown {
         return result
     }
 
-    static func html(_ block: Block, id: String, base: URL?) -> String {
+    static func html(_ block: Block, id: String, image: (String) -> String = { $0 }) -> String {
         switch block {
-        case .heading(let l, let t): return "<h\(l) id=\"\(id)\">\(inline(t, base: base))</h\(l)>\n"
-        case .paragraph(let t): return "<p>\(inline(t, base: base))</p>\n"
+        case .heading(let l, let t): return "<h\(l) id=\"\(id)\">\(inline(t, image: image))</h\(l)>\n"
+        case .paragraph(let t): return "<p>\(inline(t, image: image))</p>\n"
         case .code(let c): return "<pre><code>\(c.xmlEscaped)</code></pre>\n"
         case .quote(let lines):
-            let inner = blocks(lines.joined(separator: "\n")).map { html($0, id: "", base: base) }.joined()
+            let inner = blocks(lines.joined(separator: "\n")).map { html($0, id: "", image: image) }.joined()
             return "<blockquote>\(inner)</blockquote>\n"
         case .list(let ordered, let items):
             let tag = ordered ? "ol" : "ul"
-            return "<\(tag)>" + items.map { "<li>\(inline($0, base: base))</li>" }.joined() + "</\(tag)>\n"
+            return "<\(tag)>" + items.map { "<li>\(inline($0, image: image))</li>" }.joined() + "</\(tag)>\n"
         case .rule: return "<hr/>\n"
         }
     }
 
-    static func inline(_ text: String, base: URL?) -> String {
+    static func inline(_ text: String, image: (String) -> String = { $0 }) -> String {
         var s = text.xmlEscaped
         s = s.replacing(/`([^`]+)`/) { "<code>\($0.1)</code>" }
         s = s.replacing(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/) { m in
-            let src = String(m.2)
-            let resolved = src.contains("://") ? src : (base?.appendingPathComponent(src).absoluteString ?? src)
-            return "<img alt=\"\(m.1)\" src=\"\(resolved)\"/>"
+            "<img alt=\"\(m.1)\" src=\"\(image(String(m.2)))\"/>"
         }
         s = s.replacing(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/) { "<a href=\"\($0.2)\">\($0.1)</a>" }
         s = s.replacing(/(\*\*|__)(.+?)\1/) { "<strong>\($0.2)</strong>" }
         s = s.replacing(/(\*|_)(.+?)\1/) { "<em>\($0.2)</em>" }
         s = s.replacing(/~~(.+?)~~/) { "<s>\($0.1)</s>" }
         return s
+    }
+
+    /// Copies a relative image next to the generated chapter so the reader never needs access beyond the book.
+    static func localImage(_ src: String, base: URL, into dir: URL) -> String {
+        let decoded = src.removingPercentEncoding ?? src
+        guard !decoded.contains("://"), !decoded.hasPrefix("/") else { return "" }
+        let file = base.appendingPathComponent(decoded).standardizedFileURL
+        guard file.path.hasPrefix(base.standardizedFileURL.path + "/"),
+              FileManager.default.fileExists(atPath: file.path) else { return "" }
+        let images = dir.appendingPathComponent("images", isDirectory: true)
+        try? FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
+        let name = "\(abs(file.path.hashValue))-\(file.lastPathComponent)"
+        let dest = images.appendingPathComponent(name)
+        if !FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.copyItem(at: file, to: dest) }
+        return "images/" + name.xmlEscaped
     }
 
     static func plain(_ text: String) -> String {

@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-mac:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    environment: release
+    outputs:
+      commit: ${{ steps.version.outputs.commit }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Bump version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          IFS=. read -r MAJOR MINOR PATCH < VERSION
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          VERSION="$MAJOR.$MINOR.$PATCH"
+          TAG="v$VERSION"
+          echo "$VERSION" > VERSION
+          sed -i '' -E "s/(MARKETING_VERSION: )\"[^\"]*\"/\1\"$VERSION\"/" project.yml
+          xcodegen generate --quiet
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git bundle create "$RUNNER_TEMP/release.bundle" main "refs/tags/$TAG"
+      - name: Restore signing credentials
+        shell: bash
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$MAC_CERTIFICATE_P12" | base64 -D > "$RUNNER_TEMP/books.p12"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 -D > "$RUNNER_TEMP/apple.p8"
+          SIGNING_KEYCHAIN="$RUNNER_TEMP/books-signing.keychain-db"
+          SIGNING_KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$SIGNING_KEYCHAIN_PASSWORD"
+          security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN"
+          security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN"
+          security import "$RUNNER_TEMP/books.p12" -k "$SIGNING_KEYCHAIN" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$SIGNING_KEYCHAIN_PASSWORD" "$SIGNING_KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+      - name: Build and sign
+        env:
+          BOOKS_RELEASE: "1"
+          BOOKS_VERSION: ${{ steps.version.outputs.version }}
+          BOOKS_BUILD: ${{ github.run_number }}
+        run: scripts/build-app.sh
+      - name: Notarize
+        env:
+          APPLE_API_KEY: ${{ runner.temp }}/apple.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: scripts/notarize.sh
+      - name: Remove signing credentials
+        if: always()
+        shell: bash
+        run: |
+          SIGNING_KEYCHAIN="$RUNNER_TEMP/books-signing.keychain-db"
+          if [ -f "$SIGNING_KEYCHAIN" ]; then
+            security delete-keychain "$SIGNING_KEYCHAIN"
+          fi
+          rm -f "$RUNNER_TEMP/books.p12" "$RUNNER_TEMP/apple.p8"
+      - name: Save release source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+      - name: Save macOS packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages-mac
+          path: |
+            dist/Books.zip
+            dist/Books.zip.sha256
+            dist/Books.dmg
+            dist/Books.dmg.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build-mac
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Restore release source
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source
+      - name: Restore packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-mac
+          path: release
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_COMMIT: ${{ needs.build-mac.outputs.commit }}
+          TAG: ${{ needs.build-mac.outputs.tag }}
+        run: |
+          git fetch "$RUNNER_TEMP/release-source/release.bundle" \
+            refs/heads/main:refs/remotes/release/main \
+            "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-parse refs/remotes/release/main)" = "$RELEASE_COMMIT"
+          REMOTE_TAG="$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')"
+          if [ -z "$REMOTE_TAG" ]; then
+            REMOTE_TAG="$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')"
+          fi
+          if [ -n "$REMOTE_TAG" ]; then
+            test "$REMOTE_TAG" = "$RELEASE_COMMIT" || {
+              echo "Remote $TAG does not identify release commit $RELEASE_COMMIT." >&2
+              exit 1
+            }
+            git push origin refs/remotes/release/main:refs/heads/main
+          else
+            git push --atomic origin refs/remotes/release/main:refs/heads/main "refs/tags/$TAG"
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag --draft
+          # A published release is complete. A retry must not replace its live assets.
+          if [ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" = "false" ]; then
+            exit 0
+          fi
+          gh release upload "$TAG" release/* --clobber
+          gh release edit "$TAG" --draft=false --latest

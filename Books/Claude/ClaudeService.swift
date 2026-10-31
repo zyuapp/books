@@ -92,7 +92,7 @@ enum ClaudeService {
 
     private static var workingDirectory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("com.zyuapp.books/Claude", isDirectory: true)
+            .appendingPathComponent("com.zyu.books/Claude", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

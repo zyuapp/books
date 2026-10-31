@@ -1,6 +1,6 @@
 name: Books
 options:
-  bundleIdPrefix: com.zyuapp
+  bundleIdPrefix: com.zyu
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
@@ -20,8 +20,8 @@ targets:
       properties:
         CFBundleDisplayName: Books
         CFBundleName: Books
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.books
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: ""
@@ -33,15 +33,15 @@ targets:
           - CFBundleTypeName: Kindle Book
             CFBundleTypeRole: Viewer
             LSHandlerRank: Default
-            LSItemContentTypes: [com.zyuapp.books.mobi, com.zyuapp.books.azw3]
+            LSItemContentTypes: [com.zyu.books.mobi, com.zyu.books.azw3]
           - CFBundleTypeName: FictionBook
             CFBundleTypeRole: Viewer
             LSHandlerRank: Default
-            LSItemContentTypes: [com.zyuapp.books.fb2, com.zyuapp.books.fbz]
+            LSItemContentTypes: [com.zyu.books.fb2, com.zyu.books.fbz]
           - CFBundleTypeName: Comic Book Archive
             CFBundleTypeRole: Viewer
             LSHandlerRank: Default
-            LSItemContentTypes: [com.zyuapp.books.cbz, com.zyuapp.books.cbr, com.zyuapp.books.cb7, com.zyuapp.books.cbt]
+            LSItemContentTypes: [com.zyu.books.cbz, com.zyu.books.cbr, com.zyu.books.cb7, com.zyu.books.cbt]
           - CFBundleTypeName: PDF Document
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
@@ -51,47 +51,47 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.plain-text, net.daringfireball.markdown, public.rtf, org.openxmlformats.wordprocessingml.document, org.oasis-open.opendocument.text, public.html]
         UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.zyuapp.books.mobi
+          - UTTypeIdentifier: com.zyu.books.mobi
             UTTypeDescription: Mobipocket eBook
             UTTypeConformsTo: [public.data, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [mobi, prc]
               public.mime-type: [application/x-mobipocket-ebook]
-          - UTTypeIdentifier: com.zyuapp.books.azw3
+          - UTTypeIdentifier: com.zyu.books.azw3
             UTTypeDescription: Kindle eBook
             UTTypeConformsTo: [public.data, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [azw3, azw, kf8]
               public.mime-type: [application/vnd.amazon.ebook]
-          - UTTypeIdentifier: com.zyuapp.books.fb2
+          - UTTypeIdentifier: com.zyu.books.fb2
             UTTypeDescription: FictionBook
             UTTypeConformsTo: [public.xml, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [fb2]
               public.mime-type: [application/x-fictionbook+xml]
-          - UTTypeIdentifier: com.zyuapp.books.fbz
+          - UTTypeIdentifier: com.zyu.books.fbz
             UTTypeDescription: FictionBook Archive
             UTTypeConformsTo: [public.zip-archive, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [fbz]
-          - UTTypeIdentifier: com.zyuapp.books.cbz
+          - UTTypeIdentifier: com.zyu.books.cbz
             UTTypeDescription: Comic Book Archive
             UTTypeConformsTo: [public.zip-archive, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [cbz]
               public.mime-type: [application/vnd.comicbook+zip]
-          - UTTypeIdentifier: com.zyuapp.books.cbr
+          - UTTypeIdentifier: com.zyu.books.cbr
             UTTypeDescription: Comic Book Archive (RAR)
             UTTypeConformsTo: [public.data, public.archive, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [cbr]
               public.mime-type: [application/vnd.comicbook-rar]
-          - UTTypeIdentifier: com.zyuapp.books.cb7
+          - UTTypeIdentifier: com.zyu.books.cb7
             UTTypeDescription: Comic Book Archive (7z)
             UTTypeConformsTo: [public.data, public.archive, public.content]
             UTTypeTagSpecification:
               public.filename-extension: [cb7]
-          - UTTypeIdentifier: com.zyuapp.books.cbt
+          - UTTypeIdentifier: com.zyu.books.cbt
             UTTypeDescription: Comic Book Archive (TAR)
             UTTypeConformsTo: [public.tar-archive, public.content]
             UTTypeTagSpecification:
@@ -104,8 +104,10 @@ targets:
               public.mime-type: [text/markdown]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.zyuapp.books
+        PRODUCT_BUNDLE_IDENTIFIER: com.zyu.books
         PRODUCT_NAME: Books
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"

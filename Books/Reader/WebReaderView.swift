@@ -56,10 +56,11 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         self.publication = publication
         let config = WKWebViewConfiguration()
         let handler = WeakMessageHandler()
-        config.userContentController.add(handler, name: "reader")
+        config.userContentController.add(handler, contentWorld: .defaultClient, name: "reader")
         config.suppressesIncrementalRendering = true
         config.preferences.isTextInteractionEnabled = true
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Book scripts never run; the reader script lives in an isolated world that only sees the DOM.
+        config.defaultWebpagePreferences.allowsContentJavaScript = false
         webView = ReaderWebView(frame: .zero, configuration: config)
         super.init()
         handler.engine = self
@@ -72,7 +73,31 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         webView.engine = self
     }
 
+    /// Blocks every network request a book makes (trackers, remote fonts, exfiltration); books render from local files only.
+    private static func offlineRules() async -> WKContentRuleList? {
+        let json = #"""
+        [{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},
+         {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}},
+         {"trigger":{"url-filter":"^ftp://"},"action":{"type":"block"}}]
+        """#
+        do {
+            return try await WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "books-offline", encodedContentRuleList: json)
+        } catch {
+            assertionFailure("Offline content rules failed to compile: \(error)")
+            return nil
+        }
+    }
+
     func start() {
+        Task { [weak self] in
+            let rules = await Self.offlineRules()
+            guard let self else { return }
+            if let rules { webView.configuration.userContentController.add(rules) }
+            startLoading()
+        }
+    }
+
+    private func startLoading() {
         applySettings()
         let start = model?.restoreTarget() ?? Locator(index: 0)
         go(to: start, fragment: nil, atEnd: false)
@@ -116,15 +141,15 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         controller.removeAllUserScripts()
         let json = Self.json(config(fixed: fixed))
         controller.addUserScript(WKUserScript(source: "window.__readerConfig = \(json);",
-                                              injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        controller.addUserScript(WKUserScript(source: Self.readerScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+                                              injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .defaultClient))
+        controller.addUserScript(WKUserScript(source: Self.readerScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
     }
 
     func applySettings() {
         lastPrefs = prefs
         webView.isPaginated = prefs.layout == .paginated && !currentIsFixed
         installUserScripts(fixed: currentIsFixed)
-        if isReady { webView.evaluateJavaScript("Reader.configure(\(Self.json(config(fixed: currentIsFixed))))") }
+        if isReady { run("Reader.configure(\(Self.json(config(fixed: currentIsFixed))))") }
     }
 
     // MARK: Navigation
@@ -136,7 +161,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         if let off = locator.textOffset, fragment == nil, !atEnd { target["textOffset"] = off }
         let index = min(max(0, locator.index), publication.spine.count - 1)
         if index == currentIndex && isReady {
-            webView.evaluateJavaScript("Reader.go(\(Self.json(target)))")
+            run("Reader.go(\(Self.json(target)))")
         } else {
             load(index, target: target)
         }
@@ -201,7 +226,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     /// Turns one page without animation, crossing into the next or previous chapter. False at the book's edge.
     private func instantTurn(_ forward: Bool, smooth: Bool = false) async -> Bool {
         if isReady {
-            let moved = (try? await webView.evaluateJavaScript("Reader.\(forward ? "next" : "prev")(\(smooth))")) as? Bool
+            let moved = (try? await js("Reader.\(forward ? "next" : "prev")(\(smooth))")) as? Bool
             if moved == true { return true }
         }
         let target = forward ? currentIndex + 1 : currentIndex - 1
@@ -243,12 +268,12 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             guard h.locator.index == currentIndex, let r = h.range else { return nil }
             return ["id": h.id.uuidString, "start": r.start, "end": r.end, "color": h.color.rawValue, "note": h.note ?? ""]
         }
-        webView.evaluateJavaScript("Reader.setHighlights(\(Self.json(list)))")
+        run("Reader.setHighlights(\(Self.json(list)))")
     }
 
     func reveal(_ result: SearchResult, query: String) {
         if result.locator.index == currentIndex && isReady {
-            webView.evaluateJavaScript("Reader.find(\(Self.json(query)), \(result.occurrence))")
+            run("Reader.find(\(Self.json(query)), \(result.occurrence))")
         } else {
             pendingFind = (query, result.occurrence)
             load(result.locator.index, target: ["progression": result.locator.progression])
@@ -256,16 +281,16 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     }
 
     func clearSelection() {
-        webView.evaluateJavaScript("Reader.clearSelection()")
+        run("Reader.clearSelection()")
     }
 
     func currentSectionText() async -> String {
-        (try? await webView.evaluateJavaScript("Reader.chapterText()") as? String) ?? ""
+        (try? await js("Reader.chapterText()") as? String) ?? ""
     }
 
     func currentSnippet() async -> String {
         let offset = lastTextOffset ?? 0
-        return (try? await webView.evaluateJavaScript("Reader.snippetAt(\(offset))") as? String) ?? ""
+        return (try? await js("Reader.snippetAt(\(offset))") as? String) ?? ""
     }
 
     // MARK: Messages
@@ -278,7 +303,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         case "ready":
             isReady = true
             if let target = pendingTarget {
-                webView.evaluateJavaScript("Reader.go(\(Self.json(target)))") { [weak self] _, _ in self?.resumeReadyWaiters() }
+                run("Reader.go(\(Self.json(target)))") { [weak self] in self?.resumeReadyWaiters() }
             } else {
                 resumeReadyWaiters()
             }
@@ -286,7 +311,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             pendingTarget = nil
             refreshHighlights()
             if let find = pendingFind {
-                webView.evaluateJavaScript("Reader.find(\(Self.json(find.query)), \(find.occurrence))")
+                run("Reader.find(\(Self.json(find.query)), \(find.occurrence))")
                 pendingFind = nil
             }
             if webView.alphaValue < 1 {
@@ -315,13 +340,14 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         case "link":
             guard let s = body["url"] as? String, let url = URL(string: s) else { return }
             if body["noteRef"] as? Bool == true, let fragment = url.fragment, let rect = Self.rect(body["rect"]),
+               url.standardizedFileURL.path.hasPrefix(publication.rootDirectory.standardizedFileURL.path + "/"),
                let text = Self.noteText(in: url, id: fragment.removingPercentEncoding ?? fragment) {
                 model.footnote = FootnotePopup(text: text, rect: rect, link: url)
             } else {
                 model.openLink(url)
             }
         case "external":
-            if let s = body["url"] as? String, let url = URL(string: s) { NSWorkspace.shared.open(url) }
+            if let s = body["url"] as? String, let url = URL(string: s), Self.isSafeExternal(url) { NSWorkspace.shared.open(url) }
         case "tap":
             if model.footnote != nil { model.footnote = nil; return }
             model.toggleChrome()
@@ -338,7 +364,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         guard let url = action.request.url else { return .cancel }
         if url.isFileURL { return action.navigationType == .linkActivated ? .cancel : .allow }
         if url.scheme == "about" { return .allow }
-        if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+        if action.navigationType == .linkActivated, Self.isSafeExternal(url) { NSWorkspace.shared.open(url) }
         return .cancel
     }
 
@@ -351,6 +377,15 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         resumeReadyWaiters()
     }
 
+    /// Runs reader script in the isolated content world.
+    private func js(_ source: String) async throws -> Any? {
+        try await webView.evaluateJavaScript(source, contentWorld: .defaultClient)
+    }
+
+    private func run(_ source: String, then done: (() -> Void)? = nil) {
+        webView.evaluateJavaScript(source, in: nil, in: .defaultClient) { _ in done?() }
+    }
+
     func focusContent() { focusContent(onlyIfUnfocused: false) }
 
     private func focusContent(onlyIfUnfocused: Bool) {
@@ -361,7 +396,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
 
     func fragmentOffsets(_ ids: [String]) async -> [String: Int] {
         guard isReady else { return [:] }
-        let result = try? await webView.evaluateJavaScript("Reader.fragmentOffsets(\(Self.json(ids)))")
+        let result = try? await js("Reader.fragmentOffsets(\(Self.json(ids)))")
         return (result as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.intValue } ?? [:]
     }
 
@@ -417,6 +452,11 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let joined = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : String(joined.prefix(2000))
+    }
+
+    /// Books may only open web pages and mail drafts, never other apps' URL schemes.
+    static func isSafeExternal(_ url: URL) -> Bool {
+        ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "")
     }
 
     static func rect(_ any: Any?) -> CGRect? {

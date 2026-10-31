@@ -54,11 +54,11 @@ enum BookFormat: String, CaseIterable, Codable, Sendable {
 
 /// Parses a book file into a `Publication`, caching the unpacked result per book.
 enum BookLoader {
-    private static let cacheVersion = 5
+    private static let cacheVersion = 6
 
     static var cacheRoot: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return caches.appendingPathComponent("com.zyuapp.books/Publications", isDirectory: true)
+        return caches.appendingPathComponent("com.zyu.books/Publications", isDirectory: true)
     }
 
     static func load(_ url: URL, bookID: String) throws -> Publication {

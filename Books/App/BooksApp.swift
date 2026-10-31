@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 struct BooksApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    init() { LegacyDefaults.migrate() }
+
     var body: some Scene {
         Window("Books", id: "library") {
             RootView()
@@ -278,4 +280,18 @@ private struct FullScreenEnabler: NSViewRepresentable {
 final class LibrarySearchFocus {
     static let shared = LibrarySearchFocus()
     var requested = 0
+}
+
+/// Carries settings over from the pre-release bundle identifier, once.
+enum LegacyDefaults {
+    static func migrate() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "migratedLegacyDefaults") else { return }
+        defaults.set(true, forKey: "migratedLegacyDefaults")
+        guard let old = UserDefaults(suiteName: "com.zyuapp.books")?.dictionaryRepresentation() else { return }
+        let keys = ["readerPreferences", "librarySort", "coverSize", "claudeModel", "claudePath", "autoCopyOpenedBooks", "externalBookPaths"]
+        for key in keys where defaults.object(forKey: key) == nil {
+            if let value = old[key] { defaults.set(value, forKey: key) }
+        }
+    }
 }

@@ -39,7 +39,7 @@ final class PDFEngine: NSObject, ReaderEngine {
     var isDark = false
     var lastPrefs: ReaderPreferences?
 
-    private static let highlightTag = "com.zyuapp.books.highlight"
+    private static let highlightTag = "com.zyu.books.highlight"
 
     init(model: ReaderModel, publication: Publication) {
         self.model = model
