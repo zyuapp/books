@@ -468,6 +468,19 @@
       se().scrollBy({ top: -(H() - 80), behavior: anim ? 'smooth' : 'instant' });
       return true;
     },
+    // Finds a quote in this chapter, tolerant of whitespace, soft hyphens, curly quotes and case.
+    locate(quote) {
+      const text = document.body.textContent || '';
+      const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/['\u2018\u2019]/g, "['\u2018\u2019]").replace(/["\u201C\u201D]/g, '["\u201C\u201D]');
+      const words = quote.trim().split(/\s+/).filter(Boolean).map(esc);
+      if (!words.length) return null;
+      let re;
+      try { re = new RegExp(words.join('[\\s\\u00AD]+'), 'i'); } catch (e) { return null; }
+      const m = re.exec(text);
+      if (!m) return null;
+      return { start: m.index, end: m.index + m[0].length, text: m[0], progression: m.index / Math.max(1, text.length) };
+    },
     fragmentOffsets(ids) {
       const out = {};
       for (const id of ids) {

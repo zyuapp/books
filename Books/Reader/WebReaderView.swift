@@ -394,6 +394,17 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         window.makeFirstResponder(webView)
     }
 
+    func waitUntilContentReady() async { await waitUntilReady() }
+
+    func locate(_ quote: String) async -> HighlightTarget? {
+        await waitUntilReady()
+        guard let r = try? await js("Reader.locate(\(Self.json(quote)))") as? [String: Any],
+              let start = (r["start"] as? NSNumber)?.intValue, let end = (r["end"] as? NSNumber)?.intValue else { return nil }
+        return HighlightTarget(text: r["text"] as? String ?? quote, index: currentIndex,
+                               progression: (r["progression"] as? NSNumber)?.doubleValue ?? 0,
+                               range: TextRange(start: start, end: end))
+    }
+
     func fragmentOffsets(_ ids: [String]) async -> [String: Int] {
         guard isReady else { return [:] }
         let result = try? await js("Reader.fragmentOffsets(\(Self.json(ids)))")

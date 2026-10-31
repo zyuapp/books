@@ -97,7 +97,8 @@ enum ClaudeService {
         return dir
     }
 
-    static func stream(prompt: String, system: String, model: ClaudeModel) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    /// `toolsConfig` is `--mcp-config` JSON for Books' own tools; Claude gets no other tools.
+    static func stream(prompt: String, system: String, model: ClaudeModel, toolsConfig: String? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             let process = Process()
             let cancelled = LockedFlag()
@@ -115,8 +116,11 @@ enum ClaudeService {
                 process.arguments = [
                     "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                     "--tools", "", "--setting-sources", "", "--no-session-persistence", "--disable-slash-commands",
-                    "--model", model.rawValue, "--system-prompt", system,
+                    "--model", model.rawValue, "--system-prompt", system, "--strict-mcp-config",
                 ]
+                if let toolsConfig {
+                    process.arguments! += ["--mcp-config", toolsConfig, "--allowedTools", "mcp__books"]
+                }
                 var env = ProcessInfo.processInfo.environment
                 let extraPath = ["\(NSHomeDirectory())/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
                 env["PATH"] = (extraPath + [env["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
@@ -216,6 +220,12 @@ private final class StreamParser: @unchecked Sendable {
               let type = obj["type"] as? String else { return }
         switch type {
         case "stream_event":
+            // Text resumes in a new block after a tool call; keep paragraphs apart.
+            if let event = obj["event"] as? [String: Any], event["type"] as? String == "content_block_start",
+               (event["content_block"] as? [String: Any])?["type"] as? String == "text", sawDelta {
+                continuation.yield(.text("\n\n"))
+                return
+            }
             guard let event = obj["event"] as? [String: Any], event["type"] as? String == "content_block_delta",
                   let delta = event["delta"] as? [String: Any], delta["type"] as? String == "text_delta",
                   let text = delta["text"] as? String else { return }

@@ -60,6 +60,8 @@ struct ChatMessage: Codable, Hashable, Identifiable, Sendable {
     var role: Role
     var text: String
     var date = Date()
+    /// What Claude did in the app while writing this answer.
+    var actions: [String]? = nil
 }
 
 struct ChatThread: Syncable, Hashable, Sendable {

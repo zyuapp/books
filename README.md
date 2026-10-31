@@ -28,7 +28,14 @@ Books keeps your library in `iCloud Drive/Books/` (or `~/Documents/Books/` witho
 
 ## Ask Claude
 
-Select text and press **Ask Claude** (⌘L). Books runs the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI you already have installed in headless mode, with all tools disabled, so questions use your Claude subscription and Claude can only read the text Books sends it. Run `claude` once in Terminal to sign in first.
+Select text and press **Ask Claude** (⌘L), or just ask about the book. Claude can also work inside Books for you:
+
+- **Look things up**: search the book, read any chapter, and read your highlights, notes and bookmarks across your whole library ("Which of my notes connect to this chapter?").
+- **Act**: turn to a chapter or passage, highlight with a note, bookmark, edit or remove highlights, mark books finished, organise collections, and change the theme, font or layout.
+
+Every change Claude makes appears in the conversation with **Undo**.
+
+Books runs the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI you already have installed, so questions use your Claude subscription; run `claude` once in Terminal to sign in. Claude gets only Books' own tools, served from inside the app over `127.0.0.1` with a fresh token for every question. It has no shell, file or web access, and nothing needs to be installed or configured.
 
 ## Privacy and security
 
@@ -58,6 +65,8 @@ scripts/install-local.sh        # builds dist/Books.app and installs it in /Appl
 ```
 
 Or run `xcodegen generate` and open `Books.xcodeproj`. `scripts/make-icon.swift` redraws the app icon.
+
+To give Claude a new ability, add an `AgentTool` to a catalog in `Books/Agent/AgentToolbox.swift`: a name, a description, typed parameters, and a handler that returns text for Claude (and, for changes, an `AgentActivity` with an undo closure). `LocalToolServer` serves every tool in the catalog automatically.
 
 Releases are cut with the **Release** workflow (`.github/workflows/release.yml`): it bumps `VERSION`, builds, signs with Developer ID, notarizes, and publishes `Books.zip` and `Books.dmg` with checksums.
 

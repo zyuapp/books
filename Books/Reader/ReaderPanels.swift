@@ -122,7 +122,7 @@ private struct NotesList: View {
                 .labelsHidden()
                 .controlSize(.small)
                 Menu {
-                    Button("Copy All as Markdown") { exportMarkdown(highlights, bookmarks) }
+                    Button("Copy All as Markdown") { exportMarkdown() }
                 } label: { Image(systemName: "square.and.arrow.up") }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -173,20 +173,9 @@ private struct NotesList: View {
         .padding(.top, 40)
     }
 
-    private func exportMarkdown(_ highlights: [Highlight], _ bookmarks: [Bookmark]) {
-        var md = "# \(model.title)\n"
-        if let a = model.publication?.author { md += "*\(a)*\n" }
-        for h in highlights {
-            md += "\n> \(h.text.replacingOccurrences(of: "\n", with: "\n> "))\n"
-            if let n = h.note { md += "\n\(n)\n" }
-            md += "\n— \(ReaderModel.describe(h.locator, publication: model.publication))\n"
-        }
-        if !bookmarks.isEmpty {
-            md += "\n## Bookmarks\n"
-            for b in bookmarks { md += "- \(b.snippet) (\(ReaderModel.describe(b.locator, publication: model.publication)))\n" }
-        }
+    private func exportMarkdown() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(md, forType: .string)
+        NSPasteboard.general.setString(model.notesMarkdown(), forType: .string)
     }
 }
 

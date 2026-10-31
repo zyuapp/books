@@ -40,6 +40,10 @@ protocol ReaderEngine: AnyObject {
     /// Plain text of the section around the current position.
     func currentSectionText() async -> String
     func currentSnippet() async -> String
+    /// Finds `quote` on the current chapter or page so it can be highlighted.
+    func locate(_ quote: String) async -> HighlightTarget?
+    /// Waits until the current chapter or page has finished loading.
+    func waitUntilContentReady() async
     /// Gives the page keyboard focus (e.g. after jumping from a panel).
     func focusContent()
     /// Character offsets of element ids in the current chapter (reflowable only).
@@ -48,6 +52,17 @@ protocol ReaderEngine: AnyObject {
 
 extension ReaderEngine {
     func fragmentOffsets(_ ids: [String]) async -> [String: Int] { [:] }
+    func locate(_ quote: String) async -> HighlightTarget? { nil }
+    func waitUntilContentReady() async {}
+}
+
+/// Where a quoted passage sits, in the form a `Highlight` stores.
+struct HighlightTarget {
+    var text: String
+    var index: Int
+    var progression: Double
+    var range: TextRange?
+    var pdfRects: [PDFRect]?
 }
 
 enum ReaderPanel: Equatable { case contents, notes, search }
@@ -423,8 +438,7 @@ final class ReaderModel {
         } else {
             var l = location
             if let page = sel.pageIndex { l = Locator(index: page, totalProgress: publication?.progress(spineIndex: page, progression: 0) ?? 0) }
-            let h = Highlight(locator: l, text: sel.text, color: color, range: sel.range, pdfRects: sel.pdfRects)
-            library.update(book.id) { $0.highlights.append(h) }
+            addHighlight(Highlight(locator: l, text: sel.text, color: color, range: sel.range, pdfRects: sel.pdfRects))
         }
         selection = nil
         engine?.clearSelection()
@@ -447,6 +461,41 @@ final class ReaderModel {
         engine?.clearSelection()
     }
 
+    /// Highlights, notes and bookmarks in reading order, as Markdown.
+    func notesMarkdown() -> String {
+        let highlights = state.liveHighlights.sorted { ($0.locator.totalProgress, $0.range?.start ?? 0) < ($1.locator.totalProgress, $1.range?.start ?? 0) }
+        let bookmarks = state.liveBookmarks.sorted { $0.locator.totalProgress < $1.locator.totalProgress }
+        var md = "# \(title)\n"
+        if let a = publication?.author { md += "*\(a)*\n" }
+        for h in highlights {
+            md += "\n> \(h.text.replacingOccurrences(of: "\n", with: "\n> "))\n"
+            if let n = h.note { md += "\n\(n)\n" }
+            md += "\n— \(Self.describe(h.locator, publication: publication))\n"
+        }
+        if !bookmarks.isEmpty {
+            md += "\n## Bookmarks\n"
+            for b in bookmarks { md += "- \(b.snippet) (\(Self.describe(b.locator, publication: publication)))\n" }
+        }
+        return md
+    }
+
+    func addHighlight(_ h: Highlight) {
+        library.update(book.id) { $0.highlights.append(h) }
+        engine?.refreshHighlights()
+    }
+
+    func addBookmark(_ b: Bookmark) {
+        library.update(book.id) { $0.bookmarks.append(b) }
+    }
+
+    func setBookmarkDeleted(_ id: UUID, _ deleted: Bool) {
+        library.update(book.id) { s in
+            guard let i = s.bookmarks.firstIndex(where: { $0.id == id }) else { return }
+            s.bookmarks[i].deleted = deleted
+            s.bookmarks[i].updated = Date()
+        }
+    }
+
     func updateHighlight(_ id: UUID, _ change: (inout Highlight) -> Void) {
         library.update(book.id) { s in
             guard let i = s.highlights.firstIndex(where: { $0.id == id }) else { return }
@@ -461,13 +510,7 @@ final class ReaderModel {
         selection = nil
     }
 
-    func deleteBookmark(_ id: UUID) {
-        library.update(book.id) { s in
-            guard let i = s.bookmarks.firstIndex(where: { $0.id == id }) else { return }
-            s.bookmarks[i].deleted = true
-            s.bookmarks[i].updated = Date()
-        }
-    }
+    func deleteBookmark(_ id: UUID) { setBookmarkDeleted(id, true) }
 
     func copySelection() {
         guard let sel = selection else { return }
@@ -496,12 +539,17 @@ final class ReaderModel {
     }
 
     private func fullText() async -> String {
-        if let bookText { return bookText.joined(separator: "\n\n") }
-        guard let publication else { return "" }
+        await bookTexts().joined(separator: "\n\n")
+    }
+
+    /// Plain text of every spine item (pages for PDFs), cached.
+    func bookTexts() async -> [String] {
+        if let bookText { return bookText }
+        guard let publication else { return [] }
         let pub = publication
         let texts = await Task.detached(priority: .userInitiated) { TextExtractor.texts(for: pub) }.value
         bookText = texts
-        return texts.joined(separator: "\n\n")
+        return texts
     }
 
     // MARK: Search

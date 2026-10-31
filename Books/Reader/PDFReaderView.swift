@@ -170,6 +170,30 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     func focusContent() { pdfView.window?.makeFirstResponder(pdfView) }
 
+    func locate(_ quote: String) async -> HighlightTarget? {
+        guard let document else { return nil }
+        let words = quote.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let start = currentPageIndex
+        // Prefer the visible page, then search outward through the document.
+        let order = [start] + (0..<document.pageCount).filter { $0 != start }
+        for i in order {
+            guard let page = document.page(at: i), let text = page.string else { continue }
+            let normalized = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            guard normalized.range(of: words, options: [.caseInsensitive, .diacriticInsensitive]) != nil,
+                  let selection = document.findString(words, withOptions: [.caseInsensitive]).first(where: { $0.pages.first == page })
+                    ?? page.selection(for: (text as NSString).range(of: quote, options: .caseInsensitive))
+            else { continue }
+            let rects = selection.selectionsByLine().compactMap { line -> PDFRect? in
+                guard line.pages.first == page else { return nil }
+                let b = line.bounds(for: page)
+                return PDFRect(x: b.minX, y: b.minY, width: b.width, height: b.height)
+            }
+            guard !rects.isEmpty else { continue }
+            return HighlightTarget(text: selection.string ?? quote, index: i, progression: 0, pdfRects: rects)
+        }
+        return nil
+    }
+
     private func turn(forward: Bool) {
         guard forward ? pdfView.canGoToNextPage : pdfView.canGoToPreviousPage else { return }
         let step = {

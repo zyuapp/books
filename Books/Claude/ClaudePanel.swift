@@ -10,6 +10,12 @@ final class ClaudeChat {
     var isStreaming = false
     var error: String?
     var scope: ClaudeScope = .chapter
+    /// What a running tool is doing, e.g. "Reading your highlights".
+    var toolProgress: String?
+    /// Changes Claude made this session, kept so they can be undone. `messageID` is nil while the answer streams.
+    var activities: [ChatActivity] = []
+    /// Undos since the last question, so Claude knows its change was reverted on purpose.
+    @ObservationIgnored private var undoneSinceLastSend: [String] = []
     var model: ClaudeModel {
         didSet { UserDefaults.standard.set(model.rawValue, forKey: "claudeModel") }
     }
@@ -71,14 +77,31 @@ final class ClaudeChat {
         isStreaming = true
         streamingText = ""
         let passage = thread!.passage
+        let undone = undoneSinceLastSend
+        undoneSinceLastSend = []
         let scope = scope
         let model = model
         task = Task {
             let context = await reader.context(for: scope)
             let system = Self.systemPrompt(reader: reader)
-            let prompt = Self.prompt(context: context, scope: scope, passage: passage, history: history, question: question)
+            var prompt = Self.prompt(context: context, scope: scope, passage: passage, history: history, question: question)
+            if !undone.isEmpty {
+                prompt = "<app_events>\nThe reader pressed Undo on: " + undone.joined(separator: "; ") + "\n</app_events>\n\n" + prompt
+            }
+            let session = AgentSession(reader: reader)
+            session.onActivity = { [weak self] activity in
+                withAnimation(.snappy) { self?.activities.append(ChatActivity(activity: activity)) }
+            }
+            session.onProgress = { [weak self] label in
+                withAnimation(.easeOut(duration: 0.2)) { self?.toolProgress = label }
+            }
+            let access = await LocalToolServer.shared.register(session)
+            defer {
+                if let token = access?.token { LocalToolServer.shared.unregister(token) }
+                toolProgress = nil
+            }
             do {
-                for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model) {
+                for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model, toolsConfig: access?.config) {
                     if Task.isCancelled { break }
                     if case .text(let t) = event { streamingText += t }
                 }
@@ -95,8 +118,12 @@ final class ClaudeChat {
     }
 
     private func appendAssistant(_ text: String) {
-        guard thread != nil, !text.isEmpty else { return }
-        thread!.messages.append(ChatMessage(role: .assistant, text: text))
+        let pending = activities.indices.filter { activities[$0].messageID == nil }
+        guard thread != nil, !text.isEmpty || !pending.isEmpty else { return }
+        var message = ChatMessage(role: .assistant, text: text.isEmpty ? "Done." : text)
+        if !pending.isEmpty { message.actions = pending.map { activities[$0].activity.title } }
+        for i in pending { activities[i].messageID = message.id }
+        thread!.messages.append(message)
         thread!.updated = Date()
         persist()
     }
@@ -106,6 +133,13 @@ final class ClaudeChat {
         reader.library.update(reader.book.id) { s in
             if let i = s.chats.firstIndex(where: { $0.id == thread.id }) { s.chats[i] = thread } else { s.chats.append(thread) }
         }
+    }
+
+    func undo(_ id: UUID) {
+        guard let i = activities.firstIndex(where: { $0.id == id }), !activities[i].undone else { return }
+        activities[i].activity.undo?()
+        undoneSinceLastSend.append(activities[i].activity.title)
+        withAnimation(.snappy) { activities[i].undone = true }
     }
 
     func delete(_ t: ChatThread) {
@@ -129,6 +163,7 @@ final class ClaudeChat {
         Answer from the provided book text when it's relevant, and from your own knowledge otherwise. \
         Be concise and specific: short paragraphs, quotes from the text when helpful, light Markdown (bold, italics, short lists). \
         Never reveal plot developments beyond the reader's current position unless they explicitly ask for spoilers.
+        \(AgentToolbox.guidance)
         """
     }
 
@@ -147,6 +182,13 @@ final class ClaudeChat {
         parts.append(question)
         return parts.joined(separator: "\n\n")
     }
+}
+
+struct ChatActivity: Identifiable {
+    let id = UUID()
+    var activity: AgentActivity
+    var messageID: UUID?
+    var undone = false
 }
 
 struct ClaudePanel: View {
@@ -225,12 +267,33 @@ struct ClaudePanel: View {
                         emptyState
                     }
                     ForEach(chat.thread?.messages ?? []) { m in
-                        MessageView(message: m, onCopy: { copy(m.text) }, onSaveNote: m.role == .assistant ? { saveNote(m.text) } : nil)
-                            .id(m.id)
+                        VStack(alignment: .leading, spacing: 8) {
+                            let live = chat.activities.filter { $0.messageID == m.id }
+                            if !live.isEmpty {
+                                ActivityList(items: live, undo: chat.undo)
+                            } else if let actions = m.actions, !actions.isEmpty {
+                                ActivityList(items: actions.map { ChatActivity(activity: AgentActivity(symbol: "checkmark.circle", title: $0)) }, undo: nil)
+                            }
+                            MessageView(message: m, onCopy: { copy(m.text) }, onSaveNote: m.role == .assistant ? { saveNote(m.text) } : nil)
+                        }
+                        .id(m.id)
                     }
                     if chat.isStreaming {
-                        MessageView(message: ChatMessage(role: .assistant, text: chat.streamingText), streaming: true)
-                            .id("streaming")
+                        VStack(alignment: .leading, spacing: 8) {
+                            let pending = chat.activities.filter { $0.messageID == nil }
+                            if !pending.isEmpty { ActivityList(items: pending, undo: chat.undo) }
+                            if let progress = chat.toolProgress {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text(progress + "…").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                                }
+                                .transition(.opacity)
+                            }
+                            if !chat.streamingText.isEmpty || chat.toolProgress == nil {
+                                MessageView(message: ChatMessage(role: .assistant, text: chat.streamingText), streaming: true)
+                            }
+                        }
+                        .id("streaming")
                     }
                     if let error = chat.error {
                         ErrorCard(message: error)
@@ -241,6 +304,7 @@ struct ClaudePanel: View {
             }
             .scrollEdgeEffectStyle(.soft, for: .all)
             .onChange(of: chat.streamingText) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: chat.activities.count) { _, _ in withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.thread?.messages.count) { _, _ in
                 withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -734,5 +798,42 @@ private struct MessageActionStyle: ButtonStyle {
             .padding(.horizontal, 8)
             .frame(height: 22)
             .background(Capsule().fill(.primary.opacity(configuration.isPressed ? 0.14 : 0.06)))
+    }
+}
+
+/// Cards for what Claude did in the app, each with Undo while the session lasts.
+private struct ActivityList: View {
+    let items: [ChatActivity]
+    let undo: ((UUID) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(items) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: item.undone ? "arrow.uturn.backward" : item.activity.symbol)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#C96442"))
+                        .frame(width: 22, height: 22)
+                        .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 6))
+                    Text(item.activity.title)
+                        .font(.system(size: 12))
+                        .strikethrough(item.undone)
+                        .foregroundStyle(item.undone ? .secondary : .primary)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    if item.undone {
+                        Text("Undone").font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else if let undo, item.activity.undo != nil {
+                        Button(item.activity.undoLabel) { undo(item.id) }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(Color(hex: "#C96442"))
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 10).fill(.primary.opacity(0.05)))
+            }
+        }
     }
 }
