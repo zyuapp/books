@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import IOSurface
 import QuartzCore
 
 /// A page-curl turn drawn over a reader view: snapshot the old page, turn underneath, then curl it away.
@@ -56,22 +57,19 @@ final class PageCurl {
     func animate(from a: CGImage, to b: CGImage, forward: Bool, rightToLeft: Bool = false, paper: NSColor, token: Int,
                  duration: Double = 0.55) async {
         guard let overlay else { return }
-        let maxWidth: CGFloat = 1800
-        let scale = min(1, maxWidth / CGFloat(a.width))
         let paperImage = CIImage(color: CIColor(color: paper) ?? .white)
         // Snapshots of a transparent web view need the page colour behind them.
         func prepare(_ cg: CGImage) -> CIImage {
-            let img = CIImage(cgImage: cg).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            let img = CIImage(cgImage: cg)
             return img.composited(over: paperImage).cropped(to: img.extent)
         }
         let imgA = prepare(a), imgB = prepare(b)
         let extent = imgA.extent
-        // The page's back: the old page mirrored, washed out by paper colour so the text faintly shows through.
+        // The page's back is the turning page mirrored, so the curled flap shows that page at full contrast.
         let pageForBack = forward ? imgA : imgB
-        let mirrored = pageForBack.transformed(by: CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -extent.width, y: 0))
-        let wash = CIImage(color: CIColor(color: paper.withAlphaComponent(0.86)) ?? .white).cropped(to: extent)
-        let backside = wash.composited(over: mirrored)
+        let backside = pageForBack.transformed(by: CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -extent.width, y: 0))
         let radius = max(80, extent.width * 0.09)
+        let pool = SurfacePool(width: Int(extent.width), height: Int(extent.height))
 
         let start = CACurrentMediaTime()
         while isCurrent(token) {
@@ -79,15 +77,16 @@ final class PageCurl {
             let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
             let time = forward ? eased : 1 - eased
             let input = forward ? imgA : imgB, target = forward ? imgB : imgA
-            let frame = await Task.detached(priority: .userInitiated) {
+            guard let surface = pool.next() else { return }
+            let rendered = await Task.detached(priority: .userInitiated) {
                 Self.render(input: input, target: target, backside: backside, extent: extent, time: time, radius: radius,
-                            angle: rightToLeft ? -0.22 : Double.pi + 0.22)
+                            angle: rightToLeft ? -0.22 : Double.pi + 0.22, into: surface)
             }.value
             guard isCurrent(token) else { return }
-            if let frame {
+            if rendered {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                overlay.layer?.contents = frame
+                overlay.layer?.contents = surface
                 CATransaction.commit()
             }
             if t >= 1 { break }
@@ -95,8 +94,8 @@ final class PageCurl {
     }
 
     nonisolated private static func render(input: CIImage, target: CIImage, backside: CIImage, extent: CGRect,
-                                           time: Double, radius: CGFloat, angle: Double) -> CGImage? {
-        guard let filter = CIFilter(name: "CIPageCurlWithShadowTransition") else { return nil }
+                                           time: Double, radius: CGFloat, angle: Double, into surface: IOSurface) -> Bool {
+        guard let filter = CIFilter(name: "CIPageCurlWithShadowTransition") else { return false }
         filter.setValue(input, forKey: kCIInputImageKey)
         filter.setValue(target, forKey: kCIInputTargetImageKey)
         filter.setValue(backside, forKey: "inputBacksideImage")
@@ -106,8 +105,33 @@ final class PageCurl {
         filter.setValue(radius, forKey: kCIInputRadiusKey)
         filter.setValue(radius * 0.4, forKey: "inputShadowSize")
         filter.setValue(0.6, forKey: "inputShadowAmount")
-        guard let output = filter.outputImage?.cropped(to: extent) else { return nil }
-        return context.createCGImage(output, from: extent)
+        guard let output = filter.outputImage?.cropped(to: extent) else { return false }
+        let destination = CIRenderDestination(ioSurface: surface)
+        destination.colorSpace = sRGB
+        return (try? context.startTask(toRender: output, to: destination).waitUntilCompleted()) != nil
+    }
+
+    nonisolated private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)
+
+    /// Frame buffers at the snapshots' full pixel size, reusing ones the window server no longer shows.
+    private final class SurfacePool {
+        private let width: Int, height: Int
+        private var surfaces: [IOSurface] = []
+
+        init(width: Int, height: Int) {
+            self.width = width
+            self.height = height
+        }
+
+        func next() -> IOSurface? {
+            if let free = surfaces.first(where: { !$0.isInUse }) { return free }
+            guard surfaces.count < 4, let surface = IOSurface(properties: [
+                .width: width, .height: height, .bytesPerElement: 4, .pixelFormat: kCVPixelFormatType_32BGRA,
+            ]) else { return surfaces.first }
+            if let space = sRGB?.copyPropertyList() { surface.setAttachment(space, forKey: kIOSurfaceColorSpace as String) }
+            surfaces.append(surface)
+            return surface
+        }
     }
 
     private final class OverlayView: NSView {

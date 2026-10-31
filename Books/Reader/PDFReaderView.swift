@@ -224,19 +224,19 @@ final class PDFEngine: NSObject, ReaderEngine {
     /// Renders the visible pages as they sit in the view (PDFKit's layers don't show up in cacheDisplay).
     private func snapshot() -> CGImage? {
         let bounds = pdfView.bounds
-        let scale = min(pdfView.window?.backingScaleFactor ?? 2, 1.5)
-        guard bounds.width > 0, let document else { return nil }
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(bounds.width * scale),
-                                         pixelsHigh: Int(bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
-                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        let scale = pdfView.window?.backingScaleFactor ?? 2
+        guard bounds.width > 0, document != nil,
+              let ctx = CGContext(data: nil, width: Int(bounds.width * scale), height: Int(bounds.height * scale),
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
-        rep.size = bounds.size
+        ctx.scaleBy(x: scale, y: scale)
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
         pdfView.backgroundColor.setFill()
         bounds.fill()
         for page in pdfView.visiblePages {
-            let rect = pdfView.convert(page.bounds(for: pdfView.displayBox), from: page)
+            let rect = displayedFrame(of: page)
             guard rect.intersects(bounds) else { continue }
             NSGraphicsContext.saveGraphicsState()
             let shadow = NSShadow()
@@ -247,20 +247,53 @@ final class PDFEngine: NSObject, ReaderEngine {
             (isDimmed ? NSColor.black : NSColor.white).setFill()
             rect.fill()
             NSGraphicsContext.restoreGraphicsState()
-            let thumb = page.thumbnail(of: NSSize(width: rect.width * scale, height: rect.height * scale), for: pdfView.displayBox)
-            (isDimmed ? dimmed(thumb) : thumb).draw(in: rect)
+            guard let rendered = render(page, pixelsPerUnit: scale * pdfView.scaleFactor) else { continue }
+            let image = isDimmed ? dimmed(rendered) : rendered
+            let size = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+            ctx.saveGState()
+            ctx.clip(to: rect)
+            ctx.draw(image, in: CGRect(origin: CGPoint(x: rect.minX, y: rect.maxY - size.height), size: size))
+            ctx.restoreGState()
         }
         NSGraphicsContext.restoreGraphicsState()
-        _ = document
-        return rep.cgImage
+        return ctx.makeImage()
+    }
+
+    /// Where PDFKit actually draws the page: its page view's frame, which can sit half a point off `convert(_:from:)`.
+    private func displayedFrame(of page: PDFPage) -> CGRect {
+        let estimate = pdfView.convert(page.bounds(for: pdfView.displayBox), from: page)
+        let frames = pdfView.documentView?.subviews.map { $0.convert($0.bounds, to: pdfView) } ?? []
+        return frames.first {
+            abs($0.midX - estimate.midX) < 2 && abs($0.midY - estimate.midY) < 2
+                && abs($0.width - estimate.width) < 2 && abs($0.height - estimate.height) < 2
+        } ?? estimate
+    }
+
+    /// Draws a page's vectors at PDFKit's own tile resolution, so every glyph lands on the pixel it has on screen.
+    /// The bitmap is rounded up to whole pixels at the top; the page's bottom-left sits at pixel (0, 0).
+    private func render(_ page: PDFPage, pixelsPerUnit: CGFloat) -> CGImage? {
+        let box = page.bounds(for: pdfView.displayBox)
+        let quarterTurned = page.rotation % 180 != 0
+        let natural = quarterTurned ? CGSize(width: box.height, height: box.width) : box.size
+        let exactHeight = natural.height * pixelsPerUnit
+        let pixelsWide = Int((natural.width * pixelsPerUnit).rounded(.up)), pixelsHigh = Int(exactHeight.rounded(.up))
+        guard pixelsWide > 0, pixelsHigh > 0,
+              let ctx = CGContext(data: nil, width: pixelsWide, height: pixelsHigh, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        ctx.setFillColor(.white)
+        ctx.fill(CGRect(x: 0, y: 0, width: pixelsWide, height: pixelsHigh))
+        ctx.translateBy(x: 0, y: CGFloat(pixelsHigh) - exactHeight)
+        ctx.scaleBy(x: pixelsPerUnit, y: pixelsPerUnit)
+        page.draw(with: pdfView.displayBox, to: ctx)
+        return ctx.makeImage()
     }
 
     /// Inverts a page image the way the live dark-theme filter does.
-    private func dimmed(_ image: NSImage) -> NSImage {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
-        let out = CIImage(cgImage: cg).applyingFilter("CIColorInvert").applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: Float.pi])
-        guard let result = Self.ciContext.createCGImage(out, from: out.extent) else { return image }
-        return NSImage(cgImage: result, size: image.size)
+    private func dimmed(_ image: CGImage) -> CGImage {
+        let out = CIImage(cgImage: image).applyingFilter("CIColorInvert").applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: Float.pi])
+        return Self.ciContext.createCGImage(out, from: out.extent) ?? image
     }
 
     func refreshHighlights() {
