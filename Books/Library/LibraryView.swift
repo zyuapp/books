@@ -60,6 +60,8 @@ struct LibraryView: View {
     @AppStorage("coverSize") private var coverSize: Double = 150
     @State private var newCollection: String?
     @State private var isDropTarget = false
+    @State private var searchPresented = false
+    @State private var searchFocus = LibrarySearchFocus.shared
 
     var body: some View {
         NavigationSplitView {
@@ -70,7 +72,8 @@ struct LibraryView: View {
                 .navigationTitle(section?.title ?? "Library")
                 .navigationSubtitle(subtitle)
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Title, author or format")
+        .searchable(text: $query, isPresented: $searchPresented, placement: .toolbar, prompt: "Title, author or format")
+        .onChange(of: searchFocus.requested) { _, _ in searchPresented = true }
         .toolbar { toolbar }
         .onAppear {
             library.start()
@@ -230,6 +233,8 @@ struct LibraryView: View {
                     ForEach(filtered) { book in
                         BookCard(book: book, width: coverSize)
                             .onTapGesture { open(book) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { open(book) }
                             .contextMenu { contextMenu(for: book) }
                             .draggable(book.id)
                     }
@@ -413,6 +418,20 @@ struct BookCard: View {
         }
         .onHover { hovering = $0 }
         .help(title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText(title: title, state: state))
+    }
+
+    private func accessibilityText(title: String, state: ReadingState) -> String {
+        var parts = [title]
+        if let a = state.author { parts.append("by \(a)") }
+        switch state.status {
+        case .unread: parts.append("new")
+        case .reading: parts.append("\(Int((state.progress * 100).rounded())) percent read")
+        case .finished: parts.append("finished")
+        }
+        if !book.isDownloaded { parts.append("in iCloud") }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -529,6 +548,8 @@ private struct Shelf: View {
                         ForEach(books) { book in
                             BookCard(book: book, width: 128)
                                 .onTapGesture { open(book) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAction { open(book) }
                                 .contextMenu { menu(book) }
                                 .draggable(book.id)
                         }

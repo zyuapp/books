@@ -223,8 +223,10 @@ struct BooksCommands: Commands {
                 .disabled(reader == nil)
             Button("Highlights & Bookmarks") { toggle(.notes) }.keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(reader == nil)
-            Button("Find in Book") { toggle(.search) }.keyboardShortcut("f")
-                .disabled(reader == nil)
+            Button(reader == nil ? "Find in Library" : "Find in Book") {
+                if reader != nil { toggle(.search) } else { LibrarySearchFocus.shared.requested += 1 }
+            }
+            .keyboardShortcut("f")
         }
         CommandMenu("Book") {
             Button("Add Bookmark") { reader?.toggleBookmark() }.keyboardShortcut("d")
@@ -269,4 +271,11 @@ private struct FullScreenEnabler: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         view.window?.collectionBehavior.insert(.fullScreenPrimary)
     }
+}
+
+/// Bumped by ⌘F in the library so the search field takes focus.
+@MainActor @Observable
+final class LibrarySearchFocus {
+    static let shared = LibrarySearchFocus()
+    var requested = 0
 }
