@@ -40,6 +40,14 @@ protocol ReaderEngine: AnyObject {
     /// Plain text of the section around the current position.
     func currentSectionText() async -> String
     func currentSnippet() async -> String
+    /// Gives the page keyboard focus (e.g. after jumping from a panel).
+    func focusContent()
+    /// Character offsets of element ids in the current chapter (reflowable only).
+    func fragmentOffsets(_ ids: [String]) async -> [String: Int]
+}
+
+extension ReaderEngine {
+    func fragmentOffsets(_ ids: [String]) async -> [String: Int] { [:] }
 }
 
 enum ReaderPanel: Equatable { case contents, notes, search }
@@ -58,6 +66,7 @@ final class ReaderModel {
 
     var panel: ReaderPanel?
     var showClaude = false
+    var claudeShowsHistory = false
     var showSettings = false
     /// Controls auto-hide only in full screen; in a window they stay put.
     var chromeVisible = true
@@ -195,6 +204,7 @@ final class ReaderModel {
         selection = nil
         footnote = nil
         engine?.go(to: locator, fragment: fragment, atEnd: false)
+        engine?.focusContent()
     }
 
     func jump(toProgress p: Double) {
@@ -250,6 +260,7 @@ final class ReaderModel {
     func goBack() {
         guard let target = backStack.popLast() else { return }
         userMoved = true
+        defer { engine?.focusContent() }
         forwardStack.append(location)
         engine?.go(to: target, fragment: nil, atEnd: false)
         if backStack.isEmpty { showBackPill = false } else { flashBackPill() }
@@ -284,7 +295,10 @@ final class ReaderModel {
 
     // MARK: Chrome
 
+    @ObservationIgnored private var chromeHiddenByTap = Date.distantPast
+
     func pokeChrome() {
+        guard Date().timeIntervalSince(chromeHiddenByTap) > 0.8 else { return }
         if !chromeVisible { withAnimation(.easeOut(duration: 0.25)) { chromeVisible = true } }
         scheduleChromeHide()
     }
@@ -293,6 +307,7 @@ final class ReaderModel {
         guard isFullScreen else { return }
         if chromeVisible {
             chromeTask?.cancel()
+            chromeHiddenByTap = Date()
             withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = false }
         } else {
             pokeChrome()
@@ -321,16 +336,29 @@ final class ReaderModel {
         publication?.kind == .comic || settings.prefs.layout == .paginated
     }
 
+    /// ⌥→ next TOC entry; ⌥← start of the current entry, or the previous one when already at its start.
     func goToChapter(offset: Int) {
         guard let publication else { return }
-        let starts = Array(Set(Self.flatten(publication.toc).map(\.spineIndex))).sorted()
+        let entries = Self.flatten(publication.toc)
+        guard !entries.isEmpty else { return }
         let current = location.index
-        let target = offset > 0 ? starts.first { $0 > current } : starts.last { $0 < current }
-            ?? (offset < 0 ? starts.first : nil)
-        if let target, let entry = Self.flatten(publication.toc).first(where: { $0.spineIndex == target }) {
-            go(to: entry)
-        } else if offset < 0 {
-            jump(to: Locator(index: starts.first ?? 0))
+        let here = location.textOffset ?? 0
+        Task {
+            let ids = entries.filter { $0.spineIndex == current }.compactMap(\.fragment)
+            let offsets = ids.isEmpty ? [:] : (await engine?.fragmentOffsets(ids) ?? [:])
+            // Signed distance of an entry from the reading position (TOC order breaks ties across chapters).
+            func compare(_ e: TOCEntry) -> Int {
+                if e.spineIndex != current { return e.spineIndex < current ? -1 : 1 }
+                let pos = e.fragment.flatMap { offsets[$0] } ?? 0
+                if pos > here + 40 { return 1 }
+                if pos < here - 40 { return -1 }
+                return 0
+            }
+            let target = offset > 0
+                ? entries.first { compare($0) > 0 }
+                : entries.last { compare($0) < 0 }
+            guard let target else { return }
+            go(to: target)
         }
     }
 
@@ -356,6 +384,8 @@ final class ReaderModel {
             engine?.clearSelection()
         } else if showSettings {
             showSettings = false
+        } else if showClaude && claudeShowsHistory {
+            withAnimation(.smooth(duration: 0.3)) { claudeShowsHistory = false }
         } else if showClaude || panel != nil {
             withAnimation(.spring(duration: 0.35)) { showClaude = false; panel = nil }
         } else if let window, window.styleMask.contains(.fullScreen) {
@@ -502,6 +532,7 @@ final class ReaderModel {
     func reveal(_ result: SearchResult) {
         recordJump()
         engine?.reveal(result, query: searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))
+        engine?.focusContent()
     }
 }
 
@@ -560,7 +591,7 @@ enum ReaderKeys {
     static func handle(_ event: NSEvent, model: ReaderModel, window: NSWindow) -> Bool {
         if window.attachedSheet != nil { return false }
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
-        if event.charactersIgnoringModifiers?.lowercased() == "w", mods == .command {
+        if event.keyCode == 13, mods == .command {   // ⌘W, layout independent
             OpenBridge.shared.showLibrary()
             return true
         }
@@ -572,9 +603,10 @@ enum ReaderKeys {
         // Leave typing alone.
         if let responder = window.firstResponder as? NSText, responder.isEditable { return false }
         if window.firstResponder is NSTextField { return false }
+        // Full Keyboard Access: a focused control keeps its own arrows and space.
+        if let control = window.firstResponder as? NSControl, !(control is NSScrollView) { return false }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let rtl = model.pagesRightToLeft
         let forward = { model.nextPage() }
         let back = { model.previousPage() }
@@ -593,8 +625,8 @@ enum ReaderKeys {
         case (123, .option): model.goToChapter(offset: rtl ? 1 : -1)
         case (124, .option): model.goToChapter(offset: rtl ? -1 : 1)
         default:
-            if key == "z", flags == .command, model.canGoBack { model.goBack(); return true }
-            if key == "z", flags == [.command, .shift], model.canGoForward { model.goForward(); return true }
+            if event.keyCode == 6, flags == .command, model.canGoBack { model.goBack(); return true }
+            if event.keyCode == 6, flags == [.command, .shift], model.canGoForward { model.goForward(); return true }
             return false
         }
         return true

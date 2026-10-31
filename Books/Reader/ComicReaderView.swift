@@ -74,6 +74,7 @@ final class ComicEngine: ReaderEngine {
     func currentSectionText() async -> String { "" }
     func currentSnippet() async -> String { "Page \(index + 1)" }
     func start() { moved() }
+    func focusContent() { NSApp.keyWindow?.makeFirstResponder(nil) }
 }
 
 struct ComicReaderView: View {
@@ -108,7 +109,6 @@ struct ComicReaderView: View {
             .transition(.opacity)
             .overlay(EventCatcher(
                 onSwipe: { forward in forward ? model.nextPage() : model.previousPage() },
-                onMove: { model.pokeChrome() },
                 overlayRects: { model.overlayRects },
                 rightToLeft: { engine.rightToLeft },
                 onClick: { fractionX in
@@ -129,7 +129,6 @@ struct ComicReaderView: View {
 /// Captures clicks, swipes and mouse movement for SwiftUI-rendered readers.
 struct EventCatcher: NSViewRepresentable {
     var onSwipe: (Bool) -> Void
-    var onMove: () -> Void
     var overlayRects: () -> [CGRect] = { [] }
     var rightToLeft: () -> Bool = { false }
     var onClick: ((CGFloat) -> Void)? = nil
@@ -183,11 +182,6 @@ struct EventCatcher: NSViewRepresentable {
             }
         }
 
-        override func mouseMoved(with event: NSEvent) {
-            let y = convert(event.locationInWindow, from: nil).y
-            _ = y
-            handlers?.onMove()
-        }
 
         override func mouseUp(with event: NSEvent) {
             window?.makeFirstResponder(self)

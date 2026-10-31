@@ -335,7 +335,7 @@
   // The selection bar appears only once a drag ends; keyboard selections report after a pause.
   let mouseIsDown = false;
   document.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.ctrlKey) return;
     mouseIsDown = true;
     clearTimeout(selTimer);
     post({ type: 'selectionCleared' });
@@ -346,6 +346,10 @@
     clearTimeout(selTimer);
     selTimer = setTimeout(reportSelection, 30);
   }, true);
+  const releaseMouse = () => { mouseIsDown = false; };
+  document.addEventListener('contextmenu', releaseMouse, true);
+  document.addEventListener('dragend', releaseMouse, true);
+  window.addEventListener('blur', releaseMouse);
   document.addEventListener('selectionchange', () => {
     if (mouseIsDown) return;
     clearTimeout(selTimer);
@@ -463,6 +467,17 @@
       if (se().scrollTop <= 2) return false;
       se().scrollBy({ top: -(H() - 80), behavior: anim ? 'smooth' : 'instant' });
       return true;
+    },
+    fragmentOffsets(ids) {
+      const out = {};
+      for (const id of ids) {
+        const el = document.getElementById(id) || document.getElementsByName(id)[0];
+        if (!el) continue;
+        const r = document.createRange();
+        r.setStart(document.body, 0);
+        try { r.setEndBefore(el); out[id] = r.toString().length; } catch (e) {}
+      }
+      return out;
     },
     setHighlights,
     find,

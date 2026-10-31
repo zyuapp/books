@@ -153,14 +153,13 @@ struct ClaudePanel: View {
     let reader: ReaderModel
     @Bindable var chat: ClaudeChat
     let theme: ReaderTheme
-    @State private var showHistory = false
     @FocusState private var inputFocused: Bool
 
     private static let accent = Color(hex: "#C96442")
 
     var body: some View {
         ZStack {
-            if showHistory {
+            if reader.claudeShowsHistory {
                 history
                     .transition(.move(edge: .leading).combined(with: .opacity))
             } else {
@@ -173,14 +172,14 @@ struct ClaudePanel: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.3), value: showHistory)
+        .animation(.smooth(duration: 0.3), value: reader.claudeShowsHistory)
         .frame(width: 400)
         .glassEffect(.regular.tint(theme.backgroundColor.opacity(0.6)), in: .rect(cornerRadius: 26))
         .clipShape(.rect(cornerRadius: 26))
         .readerOverlay()
         .shadow(color: .black.opacity(0.14), radius: 30, y: 10)
         .onChange(of: reader.claudeDraft) { _, seed in
-            if let seed { chat.begin(with: seed); showHistory = false; reader.claudeDraft = nil; inputFocused = true }
+            if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil; inputFocused = true }
         }
         .onAppear {
             if let seed = reader.claudeDraft { chat.begin(with: seed); reader.claudeDraft = nil }
@@ -200,7 +199,7 @@ struct ClaudePanel: View {
             }
             Spacer(minLength: 8)
             PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations",
-                            badge: reader.state.liveChats.count) { showHistory = true }
+                            badge: reader.state.liveChats.count) { reader.claudeShowsHistory = true }
             PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                 chat.newThread()
                 inputFocused = true
@@ -369,18 +368,17 @@ struct ClaudePanel: View {
         let threads = reader.state.liveChats
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Button { showHistory = false } label: {
+                Button { reader.claudeShowsHistory = false } label: {
                     Label("Back", systemImage: "chevron.left").font(.system(size: 13, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Self.accent)
-                .keyboardShortcut(.cancelAction)
                 Spacer()
                 Text("Conversations").font(.system(size: 14, weight: .semibold))
                 Spacer()
                 PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                     chat.newThread()
-                    showHistory = false
+                    reader.claudeShowsHistory = false
                     inputFocused = true
                 }
             }
@@ -403,7 +401,7 @@ struct ClaudePanel: View {
                     LazyVStack(spacing: 4) {
                         ForEach(threads) { t in
                             HistoryRow(thread: t, isCurrent: t.id == chat.thread?.id,
-                                       open: { chat.open(t); showHistory = false },
+                                       open: { chat.open(t); reader.claudeShowsHistory = false },
                                        delete: { withAnimation(.snappy) { chat.delete(t) } })
                         }
                     }

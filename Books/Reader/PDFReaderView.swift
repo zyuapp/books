@@ -93,8 +93,10 @@ final class PDFEngine: NSObject, ReaderEngine {
         }
         pdfView.displaysAsBook = twoUp
         pdfView.backgroundColor = NSColor(hex: theme.background).blended(withFraction: theme.isDark ? 0.0 : 0.04, of: .black) ?? .windowBackgroundColor
+        let layoutChanged = pdfView.isPaginated != (p.layout == .paginated) || lastDisplayMode != pdfView.displayMode
+        lastDisplayMode = pdfView.displayMode
         pdfView.isPaginated = p.layout == .paginated
-        fitPages()
+        fitPages(force: layoutChanged || fittedScale == nil)
         applyDimming(p.dimPDFInDarkThemes && theme.isDark)
     }
 
@@ -114,7 +116,12 @@ final class PDFEngine: NSObject, ReaderEngine {
     }
 
     /// Paged mode shows whole pages (fit to window, below the toolbar); scroll mode fits the width.
-    private func fitPages() {
+    private var fittedScale: CGFloat?
+    private var lastDisplayMode: PDFDisplayMode?
+
+    /// Refits unless the user has zoomed away from the last fit (pass `force` after a layout change).
+    private func fitPages(force: Bool = false) {
+        if !force, let fitted = fittedScale, abs(pdfView.scaleFactor - fitted) > 0.01 { return }
         guard pdfView.isPaginated, let page = pdfView.currentPage ?? document?.page(at: 0) else {
             pdfView.autoScales = true
             return
@@ -126,6 +133,7 @@ final class PDFEngine: NSObject, ReaderEngine {
         let availableH = pdfView.bounds.height - 130
         pdfView.autoScales = false
         pdfView.scaleFactor = max(0.1, min(availableW / (size.width * columns), availableH / size.height))
+        fittedScale = pdfView.scaleFactor
     }
 
     private var currentPageIndex: Int {
@@ -158,6 +166,9 @@ final class PDFEngine: NSObject, ReaderEngine {
     func previous() { turn(forward: false) }
 
     private let curl = PageCurl()
+    private static let ciContext = CIContext()
+
+    func focusContent() { pdfView.window?.makeFirstResponder(pdfView) }
 
     private func turn(forward: Bool) {
         guard forward ? pdfView.canGoToNextPage : pdfView.canGoToPreviousPage else { return }
@@ -189,7 +200,7 @@ final class PDFEngine: NSObject, ReaderEngine {
     /// Renders the visible pages as they sit in the view (PDFKit's layers don't show up in cacheDisplay).
     private func snapshot() -> CGImage? {
         let bounds = pdfView.bounds
-        let scale = pdfView.window?.backingScaleFactor ?? 2
+        let scale = min(pdfView.window?.backingScaleFactor ?? 2, 1.5)
         guard bounds.width > 0, let document else { return nil }
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(bounds.width * scale),
                                          pixelsHigh: Int(bounds.height * scale), bitsPerSample: 8, samplesPerPixel: 4,
@@ -224,7 +235,7 @@ final class PDFEngine: NSObject, ReaderEngine {
     private func dimmed(_ image: NSImage) -> NSImage {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
         let out = CIImage(cgImage: cg).applyingFilter("CIColorInvert").applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: Float.pi])
-        guard let result = CIContext().createCGImage(out, from: out.extent) else { return image }
+        guard let result = Self.ciContext.createCGImage(out, from: out.extent) else { return image }
         return NSImage(cgImage: result, size: image.size)
     }
 
@@ -396,12 +407,7 @@ final class ReaderPDFView: PDFView {
         }
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        let y = convert(event.locationInWindow, from: nil).y
-        _ = y
-        model?.pokeChrome()
-    }
+
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event) ?? NSMenu()

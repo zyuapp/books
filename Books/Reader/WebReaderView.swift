@@ -42,7 +42,6 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     private var isReady = false
     private var loadID = 0
     private let curl = PageCurl()
-    private var readyWaiter: CheckedContinuation<Void, Never>?
     var isDark = false
     var lastPrefs: ReaderPreferences?
 
@@ -163,31 +162,40 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     func next() { turn(forward: true) }
     func previous() { turn(forward: false) }
 
+    private var turnQueue: [Bool] = []
+    private var isTurning = false
+
+    /// Turns run one at a time; presses made during a turn are queued (and cut the running curl short).
     private func turn(forward: Bool) {
-        guard isReady else { return }
-        let animate = PageCurl.isEnabled && prefs.layout == .paginated
+        turnQueue.append(forward)
+        if turnQueue.count > 4 { turnQueue.removeFirst(turnQueue.count - 4) }
+        if isTurning { curl.cancelAnimation(); return }
+        isTurning = true
         Task {
-            guard animate else { _ = await instantTurn(forward, smooth: prefs.pageTurnAnimation); return }
-            let token = curl.begin()
-            guard let before = await snapshot(), curl.isCurrent(token) else {
-                if curl.isCurrent(token) { _ = await instantTurn(forward) }
-                return
+            while !turnQueue.isEmpty {
+                let dir = turnQueue.removeFirst()
+                await performTurn(forward: dir, animate: PageCurl.isEnabled && prefs.layout == .paginated && turnQueue.isEmpty)
             }
-            let paper = NSColor(hex: prefs.theme.resolved(dark: isDark).background)
-            curl.cover(webView, with: before, paper: paper)
-            let moved = await instantTurn(forward)
-            guard moved, curl.isCurrent(token) else {
-                if curl.isCurrent(token) { curl.remove() }
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(45))
-            guard curl.isCurrent(token), let after = await snapshot(), curl.isCurrent(token) else {
-                if curl.isCurrent(token) { curl.remove() }
-                return
-            }
-            await curl.animate(from: before, to: after, forward: forward, paper: paper, token: token)
-            if curl.isCurrent(token) { curl.remove() }
+            isTurning = false
         }
+    }
+
+    private func performTurn(forward: Bool, animate: Bool) async {
+        await waitUntilReady()
+        guard animate, let before = await snapshot() else {
+            curl.remove()
+            _ = await instantTurn(forward, smooth: prefs.pageTurnAnimation && !animate && turnQueue.isEmpty)
+            return
+        }
+        let token = curl.begin()
+        let paper = NSColor(hex: prefs.theme.resolved(dark: isDark).background)
+        curl.cover(webView, with: before, paper: paper)
+        guard await instantTurn(forward) else { curl.remove(); return }
+        try? await Task.sleep(for: .milliseconds(45))
+        guard curl.isCurrent(token), let after = await snapshot() else { curl.remove(); return }
+        await curl.animate(from: before, to: after, forward: forward, rightToLeft: publication.rightToLeft,
+                           paper: paper, token: token)
+        curl.remove()
     }
 
     /// Turns one page without animation, crossing into the next or previous chapter. False at the book's edge.
@@ -198,12 +206,30 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         }
         let target = forward ? currentIndex + 1 : currentIndex - 1
         guard publication.spine.indices.contains(target) else { return false }
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            readyWaiter?.resume()
-            readyWaiter = c
-            load(target, target: forward ? ["progression": 0] : ["end": true], fade: !PageCurl.isEnabled)
-        }
+        load(target, target: forward ? ["progression": 0] : ["end": true], fade: !PageCurl.isEnabled)
+        await waitUntilReady()
         return true
+    }
+
+    private var readyWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    /// Waits for the current document's "ready", giving up after a few seconds so a broken chapter can't wedge turning.
+    private func waitUntilReady(timeout: Double = 5) async {
+        if isReady { return }
+        let id = UUID()
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            readyWaiters[id] = c
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                self?.readyWaiters.removeValue(forKey: id)?.resume()
+            }
+        }
+    }
+
+    private func resumeReadyWaiters() {
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        waiters.values.forEach { $0.resume() }
     }
 
     private func snapshot() async -> CGImage? {
@@ -251,13 +277,12 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         switch type {
         case "ready":
             isReady = true
-            let waiter = readyWaiter
-            readyWaiter = nil
             if let target = pendingTarget {
-                webView.evaluateJavaScript("Reader.go(\(Self.json(target)))") { _, _ in waiter?.resume() }
+                webView.evaluateJavaScript("Reader.go(\(Self.json(target)))") { [weak self] _, _ in self?.resumeReadyWaiters() }
             } else {
-                waiter?.resume()
+                resumeReadyWaiters()
             }
+            focusContent(onlyIfUnfocused: true)
             pendingTarget = nil
             refreshHighlights()
             if let find = pendingFind {
@@ -315,6 +340,29 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         if url.scheme == "about" { return .allow }
         if action.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
         return .cancel
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { loadFailed() }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { loadFailed() }
+
+    private func loadFailed() {
+        curl.remove()
+        webView.alphaValue = 1
+        resumeReadyWaiters()
+    }
+
+    func focusContent() { focusContent(onlyIfUnfocused: false) }
+
+    private func focusContent(onlyIfUnfocused: Bool) {
+        guard let window = webView.window else { return }
+        if onlyIfUnfocused, window.firstResponder is NSText { return }
+        window.makeFirstResponder(webView)
+    }
+
+    func fragmentOffsets(_ ids: [String]) async -> [String: Int] {
+        guard isReady else { return [:] }
+        let result = try? await webView.evaluateJavaScript("Reader.fragmentOffsets(\(Self.json(ids)))")
+        return (result as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.intValue } ?? [:]
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

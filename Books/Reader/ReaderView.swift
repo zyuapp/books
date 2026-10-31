@@ -544,7 +544,10 @@ private struct WindowChrome: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow else { return event }
                 if event.type == .mouseMoved {
-                    if self.model.isFullScreen { self.model.pokeChrome() }
+                    if self.model.isFullScreen, let content = window.contentView {
+                        let y = event.locationInWindow.y
+                        if y > content.bounds.height - 100 || y < 90 { self.model.pokeChrome() }
+                    }
                     return event
                 }
                 return ReaderKeys.handle(event, model: self.model, window: window) ? nil : event
