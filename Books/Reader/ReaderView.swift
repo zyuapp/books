@@ -541,8 +541,11 @@ private struct WindowChrome: NSViewRepresentable {
             window.styleMask.insert(.fullSizeContentView)
             window.acceptsMouseMovedEvents = true
             model.isFullScreen = window.styleMask.contains(.fullScreen)
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved, .leftMouseDown]) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow else { return event }
+                if event.type == .leftMouseDown {
+                    return self.handleTitleBarDoubleClick(event, in: window) ? nil : event
+                }
                 if event.type == .mouseMoved {
                     if self.model.isFullScreen, let content = window.contentView {
                         let y = event.locationInWindow.y
@@ -558,6 +561,23 @@ private struct WindowChrome: NSViewRepresentable {
                     MainActor.assumeIsolated { self?.model.isFullScreen = value }
                 })
             }
+        }
+
+        /// The reader hides the title bar, so a double-click on the top strip (outside its buttons) does what the
+        /// system title bar would: fill the screen by default, or follow "Double-click a window's title bar".
+        private func handleTitleBarDoubleClick(_ event: NSEvent, in window: NSWindow) -> Bool {
+            guard event.clickCount == 2, !window.styleMask.contains(.fullScreen),
+                  let content = window.contentView else { return false }
+            let p = event.locationInWindow
+            guard p.y > content.bounds.height - 52 else { return false }
+            let top = CGPoint(x: p.x, y: content.bounds.height - p.y)
+            if model.overlayRects.contains(where: { $0.insetBy(dx: -4, dy: -4).contains(top) }) { return false }
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+            case "None": return true
+            case "Minimize": window.miniaturize(nil)
+            default: window.zoom(nil)
+            }
+            return true
         }
 
         func detach() {
