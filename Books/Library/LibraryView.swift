@@ -144,26 +144,6 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([library.rootURL])
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: library.usesICloud ? "icloud" : "folder")
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(library.usesICloud ? "iCloud Drive" : "On This Mac").font(.caption.weight(.semibold))
-                        Text("Books folder").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if library.isScanning { ProgressView().controlSize(.mini) }
-                }
-                .padding(10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Show the library folder in Finder")
-            .padding(8)
-        }
     }
 
     private var collections: [String] {
