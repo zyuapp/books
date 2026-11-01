@@ -536,7 +536,10 @@ final class ReaderModel {
 
     func askClaude(action: ClaudeQuickAction?) {
         let passage = selection?.text
-        claudeDraft = ClaudeRequestSeed(passage: passage, action: action, locator: location)
+        // Opening the panel on its own resumes the current conversation.
+        if passage != nil || action != nil {
+            claudeDraft = ClaudeRequestSeed(passage: passage, action: action, locator: location)
+        }
         selection = nil
         engine?.clearSelection()
         withAnimation(.spring(duration: 0.4)) { showClaude = true }
