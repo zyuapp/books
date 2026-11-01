@@ -103,10 +103,24 @@ final class PDFEngine: NSObject, ReaderEngine {
         let layoutChanged = pdfView.isPaginated != (p.layout == .paginated) || lastDisplayMode != pdfView.displayMode
         lastDisplayMode = pdfView.displayMode
         pdfView.isPaginated = p.layout == .paginated
+        applyEdgeInsets()
         fitPages(force: layoutChanged || (fittedScale == nil && !userZoomed))
         applyDimming(p.dimPDFInDarkThemes && theme.isDark)
         pdfView.backgroundColor = isDimmed ? paper.inverted : paper
         pdfView.pageShadowsEnabled = !isDimmed
+    }
+
+    /// Room above and below a page in paged mode so its edges scroll clear of the reader's bars, in view points.
+    static let edgeInsets = NSEdgeInsets(top: 72, left: 0, bottom: 76, right: 0)
+
+    /// Page break margins are in page space, so they're divided by the zoom to keep a fixed on-screen size.
+    private func applyEdgeInsets() {
+        let scale = max(pdfView.scaleFactor, 0.1)
+        let (top, bottom) = pdfView.isPaginated ? (Self.edgeInsets.top, Self.edgeInsets.bottom) : (20, 20)
+        let m = NSEdgeInsets(top: top / scale, left: 8 / scale, bottom: bottom / scale, right: 8 / scale)
+        let old = pdfView.pageBreakMargins
+        guard abs(old.top - m.top) > 0.01 || abs(old.bottom - m.bottom) > 0.01 || abs(old.left - m.left) > 0.01 else { return }
+        pdfView.pageBreakMargins = m
     }
 
     /// The color around the pages as the reader sees it.
@@ -191,6 +205,7 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     private func scaleChanged() {
         model?.zoomPercent = userZoomed ? Int((pdfView.scaleFactor * 100).rounded()) : nil
+        applyEdgeInsets()
     }
 
     /// Refits unless the user has zoomed away from the last fit (pass `force` after a layout change).
@@ -210,7 +225,7 @@ final class PDFEngine: NSObject, ReaderEngine {
         guard size.width > 0, size.height > 0, pdfView.bounds.width > 0 else { return }
         let columns: CGFloat = pdfView.displayMode == .twoUp ? 2 : 1
         let availableW = pdfView.bounds.width - 60
-        let availableH = pdfView.bounds.height - 130
+        let availableH = pdfView.bounds.height - Self.edgeInsets.top - Self.edgeInsets.bottom - 28
         pdfView.autoScales = false
         pdfView.scaleFactor = max(0.1, min(availableW / (size.width * columns), availableH / size.height))
         fittedScale = pdfView.scaleFactor
@@ -276,6 +291,22 @@ final class PDFEngine: NSObject, ReaderEngine {
         suppressJumpRecording = true
         forward ? pdfView.goToNextPage(nil) : pdfView.goToPreviousPage(nil)
         suppressJumpRecording = false
+        guard pdfView.isPaginated else { return }
+        scrollToTop()
+        // PDFKit can restore its own offset once it lays out the new page.
+        DispatchQueue.main.async { [weak self] in self?.scrollToTop() }
+    }
+
+    /// Shows the top of a page taller than the window, top margin included.
+    private func scrollToTop() {
+        guard let doc = pdfView.documentView, let scrollView = doc.enclosingScrollView else { return }
+        let clip = scrollView.contentView
+        let frame = doc.frame, size = clip.bounds.size
+        guard frame.height > size.height else { return }
+        var origin = clip.bounds.origin
+        origin.y = clip.isFlipped ? frame.minY : frame.maxY - size.height
+        clip.scroll(to: origin)
+        scrollView.reflectScrolledClipView(clip)
     }
 
     func refreshHighlights() {
@@ -455,16 +486,57 @@ final class ReaderPDFView: PDFView {
     }
 
     private var wheelMonitor: Any?
+    private var lastScrollTime: TimeInterval = 0
+    /// The press PDFKit is tracking: when it began, the scroll offset then, and where the cursor was.
+    private var press: (time: TimeInterval, origin: NSPoint, location: NSPoint)?
+    private var lastPress: (down: TimeInterval, up: TimeInterval)?
+    private var scrollOrigin: NSPoint { documentView?.enclosingScrollView?.contentView.bounds.origin ?? .zero }
+    /// Set by a click during a scroll; drops the rest of that scroll's momentum.
+    private var stopsMomentum = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor); self.wheelMonitor = nil }
         guard window != nil else { return }
         // PDFKit's inner scroll view takes wheel events (and flips pages with them) before this view sees them.
-        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
-            guard let self, event.window === self.window, self.isPaginated, let superview = self.superview else { return event }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self, event.window === self.window, let superview = self.superview else { return event }
+            if event.type == .leftMouseUp {
+                guard let press = self.press else { return event }
+                self.press = nil
+                self.lastPress = (press.time, event.timestamp)
+                // The page moved under a cursor that stayed put: a scroll during a click, not a selection.
+                let moved = abs(self.scrollOrigin.y - press.origin.y) > 2 || abs(self.scrollOrigin.x - press.origin.x) > 2
+                let still = hypot(event.locationInWindow.x - press.location.x, event.locationInWindow.y - press.location.y) < 4
+                if moved, still {
+                    DispatchQueue.main.async {
+                        self.clearSelection()
+                        MainActor.assumeIsolated { self.engine?.selectionChanged() }
+                    }
+                }
+                return event
+            }
             let p = superview.convert(event.locationInWindow, from: nil)
             guard self.frame.contains(p), !self.isUnderOverlay(p, rects: self.model?.overlayRects ?? []) else { return event }
+            if event.type == .leftMouseDown {
+                // PDFKit's page views take clicks before this view. A click while the page is still moving only stops it.
+                guard event.timestamp - self.lastScrollTime < 0.3 else {
+                    self.press = (event.timestamp, self.scrollOrigin, event.locationInWindow)
+                    return event
+                }
+                self.stopsMomentum = true
+                return nil
+            }
+            if event.phase == .began || event.phase == .mayBegin { self.stopsMomentum = false }
+            if !event.momentumPhase.isEmpty, self.stopsMomentum { return nil }
+            self.lastScrollTime = event.timestamp
+            // PDFKit already scrolled with these while it tracked the press. A lost mouse-up expires the press.
+            if let press = self.press {
+                if event.timestamp - press.time < 5 { return nil }
+                self.press = nil
+            }
+            if let last = self.lastPress, event.timestamp > last.down, event.timestamp < last.up { return nil }
+            guard self.isPaginated else { return event }
             // Paged mode never turns pages from the wheel or trackpad; it only pans a zoomed-in page.
             let k: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
             MainActor.assumeIsolated { self.engine?.pan(dx: -event.scrollingDeltaX * k, dy: -event.scrollingDeltaY * k) }

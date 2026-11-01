@@ -84,6 +84,7 @@
       (document.head || document.documentElement).appendChild(style);
     }
     style.textContent = css(cfg);
+    if (cfg.layout !== 'paginated') document.getElementById('bk-page-pad')?.remove();
     if (cfg.layout === 'fixed') fitFixedLayout();
   }
 
@@ -206,8 +207,23 @@
     post({ type: 'location', page, pageCount: pageCount(), progression: progression(), textOffset: off, snippet: snippet(off), atEnd: atEnd() });
   }
 
+  /// Widens the document to whole pages; otherwise the browser clamps the last page's scroll and shifts it sideways.
+  function padToWholePages() {
+    let pad = document.getElementById('bk-page-pad');
+    if (!pad) {
+      pad = document.createElement('div');
+      pad.id = 'bk-page-pad';
+      pad.style.cssText = 'position: absolute; top: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none;';
+      document.documentElement.appendChild(pad);
+    }
+    pad.style.left = '0px';
+    const pages = Math.max(1, Math.ceil(se().scrollWidth / W() - 0.02));
+    pad.style.left = (pages * W() - 1) + 'px';
+  }
+
   function goToPage(n) {
     if (cfg.layout !== 'paginated') return;
+    padToWholePages();
     page = Math.max(0, Math.min(pageCount() - 1, n));
     se().scrollTo({ left: page * W(), top: 0, behavior: 'instant' });
     report();

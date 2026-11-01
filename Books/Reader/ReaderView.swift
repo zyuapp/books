@@ -90,15 +90,6 @@ struct ReaderView: View {
     private var overlays: some View {
         GeometryReader { geo in
             ZStack {
-                if model.zoomPercent != nil {
-                    VStack(spacing: 0) {
-                        if model.chromeVisible || model.panel != nil || model.showClaude { scrim(fadingTo: .bottom) }
-                        Spacer(minLength: 0)
-                        if model.chromeVisible { scrim(fadingTo: .top) }
-                    }
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                }
                 VStack(spacing: 0) {
                     ZStack {
                         if model.chromeVisible || model.panel != nil || model.showClaude {
@@ -107,6 +98,16 @@ struct ReaderView: View {
                         }
                     }
                     .frame(height: 52)
+                    .frame(maxWidth: .infinity)
+                    .background {
+                        // Keeps zoomed-in page text from showing through the title.
+                        if model.zoomPercent != nil && (model.chromeVisible || model.panel != nil || model.showClaude) {
+                            theme.backgroundColor
+                                .ignoresSafeArea(edges: .top)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
                     if model.showBackPill && model.canGoBack {
                         BackPill(model: model)
                             .padding(.top, 6)
@@ -161,16 +162,6 @@ struct ReaderView: View {
             .animation(.easeInOut(duration: 0.25), value: model.zoomPercent == nil)
             .animation(.easeInOut(duration: 0.35), value: model.chromeVisible)
         }
-    }
-
-    /// Keeps zoomed-in page text from showing through the glass bars.
-    private func scrim(fadingTo edge: UnitPoint) -> some View {
-        LinearGradient(stops: [.init(color: theme.backgroundColor, location: 0),
-                               .init(color: theme.backgroundColor, location: 0.55),
-                               .init(color: theme.backgroundColor.opacity(0), location: 1)],
-                       startPoint: edge == .bottom ? .top : .bottom, endPoint: edge)
-            .frame(height: 130)
-            .transition(.opacity)
     }
 
     private func selectionBarPosition(_ rect: CGRect, in size: CGSize) -> CGPoint {

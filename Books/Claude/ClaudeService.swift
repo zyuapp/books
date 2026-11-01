@@ -53,6 +53,8 @@ enum ClaudeEffort: String, CaseIterable, Identifiable {
 
 enum ClaudeEvent: Sendable {
     case text(String)
+    /// Claude started calling a tool, by name.
+    case tool(String)
     case finished
 }
 
@@ -114,6 +116,8 @@ enum ClaudeService {
         return fm.isExecutableFile(atPath: path) ? URL(fileURLWithPath: path) : nil
     }
 
+    private static let webTools = "WebSearch,WebFetch"
+
     private static var workingDirectory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("com.zyu.books/Claude", isDirectory: true)
@@ -121,7 +125,7 @@ enum ClaudeService {
         return dir
     }
 
-    /// `toolsConfig` is `--mcp-config` JSON for Books' own tools; Claude gets no other tools.
+    /// `toolsConfig` is `--mcp-config` JSON for Books' own tools; besides those, Claude gets only web search and fetch.
     static func stream(prompt: String, system: String, model: ClaudeModel, effort: ClaudeEffort, toolsConfig: String? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             let process = Process()
@@ -139,11 +143,13 @@ enum ClaudeService {
                 process.currentDirectoryURL = workingDirectory
                 process.arguments = [
                     "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                    "--tools", "", "--setting-sources", "", "--no-session-persistence", "--disable-slash-commands",
+                    "--tools", webTools, "--setting-sources", "", "--no-session-persistence", "--disable-slash-commands",
                     "--model", model.rawValue, "--effort", effort.rawValue, "--system-prompt", system, "--strict-mcp-config",
                 ]
                 if let toolsConfig {
-                    process.arguments! += ["--mcp-config", toolsConfig, "--allowedTools", "mcp__books"]
+                    process.arguments! += ["--mcp-config", toolsConfig, "--allowedTools", "mcp__books," + webTools]
+                } else {
+                    process.arguments! += ["--allowedTools", webTools]
                 }
                 var env = ProcessInfo.processInfo.environment
                 let extraPath = ["\(NSHomeDirectory())/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
@@ -244,6 +250,12 @@ private final class StreamParser: @unchecked Sendable {
               let type = obj["type"] as? String else { return }
         switch type {
         case "stream_event":
+            if let event = obj["event"] as? [String: Any], event["type"] as? String == "content_block_start",
+               let block = event["content_block"] as? [String: Any], block["type"] as? String == "tool_use",
+               let name = block["name"] as? String {
+                continuation.yield(.tool(name))
+                return
+            }
             // Text resumes in a new block after a tool call; keep paragraphs apart.
             if let event = obj["event"] as? [String: Any], event["type"] as? String == "content_block_start",
                (event["content_block"] as? [String: Any])?["type"] as? String == "text", sawDelta {

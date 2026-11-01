@@ -22,6 +22,8 @@ final class ClaudeChat {
         didSet { UserDefaults.standard.set(effort.rawValue, forKey: "claudeEffort") }
     }
 
+    /// Scroll offset per conversation while the book is open; absent means pinned to the bottom.
+    @ObservationIgnored var scrollOffsets: [UUID: CGFloat] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private weak var reader: ReaderModel?
 
@@ -102,7 +104,17 @@ final class ClaudeChat {
             do {
                 for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model, effort: effort, toolsConfig: access?.config) {
                     if Task.isCancelled { break }
-                    if case .text(let t) = event { streamingText += t }
+                    switch event {
+                    case .text(let t):
+                        if let label = toolProgress, Self.webToolLabels.values.contains(label) { toolProgress = nil }
+                        streamingText += t
+                    case .tool(let name):
+                        if let label = Self.webToolLabels[name] {
+                            withAnimation(.easeOut(duration: 0.2)) { toolProgress = label }
+                        }
+                    case .finished:
+                        break
+                    }
                 }
                 guard !Task.isCancelled else { return }
                 appendAssistant(streamingText)
@@ -166,6 +178,8 @@ final class ClaudeChat {
         error = nil
     }
 
+    private static let webToolLabels = ["WebSearch": "Searching the web", "WebFetch": "Reading a web page"]
+
     private static func systemPrompt(reader: ReaderModel) -> String {
         let author = reader.publication?.author ?? reader.state.author
         let pct = Int((reader.location.totalProgress * 100).rounded())
@@ -176,6 +190,9 @@ final class ClaudeChat {
         You're given the text of the page they're on. When a question needs more of the book, such as the chapter, \
         earlier events or a theme across the book, use read_text, search_text and get_table_of_contents to look it up. \
         Answer from the book text when it's relevant, and from your own knowledge otherwise. \
+        You can search the web with WebSearch and read pages with WebFetch. Use them when the reader asks you to check \
+        or look something up, or when the answer depends on facts outside the book that you're unsure of or that may \
+        have changed. Cite what you found as Markdown links to the sources. \
         Be concise and specific: short paragraphs, quotes from the text when helpful, light Markdown (bold, italics, short lists). \
         The chat draws ```mermaid code blocks as diagrams: when a diagram, flowchart, timeline or map of ideas would help, or the \
         reader asks for one, include it as a mermaid block rather than describing it. The panel is narrow, so lay diagrams out \
@@ -246,6 +263,9 @@ struct ClaudePanel: View {
     let theme: ReaderTheme
     @FocusState private var inputFocused: Bool
     @State private var confirmingClearAll = false
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    /// Off until the saved offset is applied, so the first layout's offset isn't saved over it.
+    @State private var tracksScroll = false
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     private static let accent = Color(hex: "#C96442")
@@ -373,11 +393,32 @@ struct ClaudePanel: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollEdgeEffectStyle(.soft, for: .all)
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: CGFloat?.self) { g in
+                g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 8 ? nil : g.contentOffset.y
+            } action: { _, offset in
+                guard tracksScroll, let id = chat.thread?.id else { return }
+                chat.scrollOffsets[id] = offset
+            }
+            .onAppear(perform: restoreScroll)
+            .onChange(of: chat.thread?.id) { _, _ in restoreScroll() }
             .onChange(of: chat.streamingText) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: chat.activities.count) { _, _ in withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: chat.thread?.messages.count) { _, _ in
                 withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
+        }
+    }
+
+    private func restoreScroll() {
+        tracksScroll = false
+        DispatchQueue.main.async {
+            if let id = chat.thread?.id, let y = chat.scrollOffsets[id] {
+                scrollPosition.scrollTo(y: y)
+            } else {
+                scrollPosition.scrollTo(edge: .bottom)
+            }
+            DispatchQueue.main.async { tracksScroll = true }
         }
     }
 
