@@ -145,17 +145,21 @@ final class ReaderSettings {
 
     var prefs: ReaderPreferences {
         didSet {
-            if let data = try? JSONEncoder().encode(prefs) { UserDefaults.standard.set(data, forKey: "readerPreferences") }
+            if let data = try? JSONEncoder.books.encode(prefs) { UserDefaults.standard.set(data, forKey: "readerPreferences") }
         }
     }
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: "readerPreferences"),
-           let p = try? JSONDecoder().decode(ReaderPreferences.self, from: data) {
-            prefs = p
-        } else {
-            prefs = ReaderPreferences()
-        }
+        prefs = Self.stored() ?? ReaderPreferences()
+    }
+
+    func reloadFromDefaults() {
+        if let p = Self.stored(), p != prefs { prefs = p }
+    }
+
+    private static func stored() -> ReaderPreferences? {
+        guard let data = UserDefaults.standard.data(forKey: "readerPreferences") else { return nil }
+        return try? JSONDecoder().decode(ReaderPreferences.self, from: data)
     }
 }
 

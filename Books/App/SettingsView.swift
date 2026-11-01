@@ -34,7 +34,9 @@ private struct GeneralSettings: View {
             } header: {
                 Text("Library")
             } footer: {
-                Text("Positions, highlights, notes and Claude conversations sync through iCloud Drive.")
+                Text(library.usesICloud
+                     ? "Books, positions, highlights, notes, Claude conversations and settings sync through iCloud Drive."
+                     : "Turn on iCloud Drive to sync your library across Macs.")
                     .formFooterStyle()
             }
             Section {
@@ -55,11 +57,7 @@ private struct GeneralSettings: View {
     }
 
     private var locationLabel: String {
-        let path = library.rootURL.path
-        if let range = path.range(of: "/com~apple~CloudDocs/") {
-            return "iCloud Drive › " + path[range.upperBound...].replacingOccurrences(of: "/", with: " › ")
-        }
-        return path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        library.usesICloud ? "iCloud Drive › Books" : library.rootURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 }
 

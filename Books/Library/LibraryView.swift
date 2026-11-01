@@ -257,7 +257,7 @@ struct LibraryView: View {
         Divider()
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([book.url]) }
         if !book.inCloudLibrary {
-            Button("Copy to iCloud Library") { library.copyToLibrary(book) }
+            Button("Copy to Library") { library.copyToLibrary(book) }
         }
         Divider()
         if book.inCloudLibrary {
@@ -290,7 +290,7 @@ struct LibraryView: View {
             Button(action: addBooks) {
                 Label("Add Books", systemImage: "plus")
             }
-            .help("Add books to your iCloud library (⇧⌘O)")
+            .help("Add books to your library (⇧⌘O)")
         }
     }
 
@@ -338,6 +338,7 @@ enum LibraryCollections {
 
 private struct EmptyLibrary: View {
     let onAdd: () -> Void
+    @State private var library = LibraryStore.shared
 
     var body: some View {
         VStack(spacing: 18) {
@@ -346,7 +347,8 @@ private struct EmptyLibrary: View {
                 .foregroundStyle(LinearGradient(colors: [Color(hex: "#C96442"), Color(hex: "#8A3F26")], startPoint: .top, endPoint: .bottom))
                 .symbolEffect(.bounce, options: .nonRepeating)
             Text("Your library is empty").font(.system(.largeTitle, design: .serif).weight(.semibold))
-            Text("Drop EPUB, PDF, MOBI, AZW3, FB2, comics or documents here.\nThey’re stored in iCloud Drive so every Mac stays in sync.")
+            Text("Drop EPUB, PDF, MOBI, AZW3, FB2, comics or documents here.\n"
+                 + (library.usesICloud ? "They’re stored in iCloud Drive so every Mac stays in sync." : "They’re stored in Documents › Books."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button(action: onAdd) {

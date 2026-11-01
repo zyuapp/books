@@ -112,6 +112,18 @@
 	<string>26.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.zyu.books</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Books</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -25,6 +25,11 @@ targets:
         LSApplicationCategoryType: public.app-category.books
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: ""
+        NSUbiquitousContainers:
+          iCloud.com.zyu.books:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: Books
+            NSUbiquitousContainerSupportedFolderLevels: Any
         CFBundleDocumentTypes:
           - CFBundleTypeName: EPUB Book
             CFBundleTypeRole: Viewer

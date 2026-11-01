@@ -10,12 +10,14 @@
 		03DEA1AF1E6B1F51B4093383 /* ReaderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E68685FF2DDAB71D94648C /* ReaderSettings.swift */; };
 		061633920184847F985700A1 /* mermaid-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9222F7EDA769E8DABE0F6012 /* mermaid-LICENSE.txt */; };
 		06DC5604A41C0BEA2F6FAC06 /* MOBIHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74935421014EAFDC6C97BD00 /* MOBIHTML.swift */; };
+		1EE137E5927DED0AFD048A21 /* LibraryLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5735284A7945B51BFF77A166 /* LibraryLocation.swift */; };
 		1FBD5B260F3C3237F6C04A7E /* MOBI6.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5575428F6DB8E395B2B7284B /* MOBI6.swift */; };
 		2766273F7B297C94E88BB05E /* BookLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA64859E0CE3FE309F36F34 /* BookLoader.swift */; };
 		2831D7D7AA89734BC23AC5B6 /* AgentTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF0A4B74C69319D9AE6234C /* AgentTool.swift */; };
 		2DA9227C1F9E2AA06F1024A7 /* TextParsers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456EB5A5D503E07CE26F6CEA /* TextParsers.swift */; };
 		2DEC4C508C7A849182898CE9 /* MOBICompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA98291483DA3863FF31297 /* MOBICompression.swift */; };
 		3BC70C09F2683D30520114D5 /* MOBIKF8.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFB9FC23946999B556B43433 /* MOBIKF8.swift */; };
+		3F788046EE7AEF84B0F10097 /* SyncedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E663796894CF833A200B73B /* SyncedSettings.swift */; };
 		42036502C9C7697A6F3EBB7E /* reader.js in Resources */ = {isa = PBXBuildFile; fileRef = B89718B2711AD2A88F12FEF6 /* reader.js */; };
 		42A6DCAE7CAA5835D9027F7D /* ReaderPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FEE9EB09083A4DC171E91D8 /* ReaderPanels.swift */; };
 		44036F261703AC2A252C6091 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC49278F81A7D59CCB0548FC /* SettingsView.swift */; };
@@ -69,11 +71,13 @@
 		4BD4184B054BC3E42D40BDE8 /* Updater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updater.swift; sourceTree = "<group>"; };
 		4FEE9EB09083A4DC171E91D8 /* ReaderPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPanels.swift; sourceTree = "<group>"; };
 		5575428F6DB8E395B2B7284B /* MOBI6.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBI6.swift; sourceTree = "<group>"; };
+		5735284A7945B51BFF77A166 /* LibraryLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryLocation.swift; sourceTree = "<group>"; };
 		5A3165B1FBEB5B04811E3A8B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5CF0A4B74C69319D9AE6234C /* AgentTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTool.swift; sourceTree = "<group>"; };
 		61B409E79AA2B350F4AFB22E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		654E95956EFFDBF8127C5851 /* MOBIContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIContainer.swift; sourceTree = "<group>"; };
 		6CA98291483DA3863FF31297 /* MOBICompression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBICompression.swift; sourceTree = "<group>"; };
+		6E663796894CF833A200B73B /* SyncedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedSettings.swift; sourceTree = "<group>"; };
 		72D4BE3356901BC72818A29B /* ComicReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicReaderView.swift; sourceTree = "<group>"; };
 		733C4FD3DECDE21F3DF6799B /* BooksApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksApp.swift; sourceTree = "<group>"; };
 		74935421014EAFDC6C97BD00 /* MOBIHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIHTML.swift; sourceTree = "<group>"; };
@@ -199,8 +203,10 @@
 		65784CE15EEB7E1AA1D39BDD /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				5735284A7945B51BFF77A166 /* LibraryLocation.swift */,
 				34C52BFF906B2DB2A6B21680 /* LibraryStore.swift */,
 				7801CB4E43A1CB4795E852D7 /* ReadingState.swift */,
+				6E663796894CF833A200B73B /* SyncedSettings.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -276,6 +282,7 @@
 				};
 			};
 			buildConfigurationList = C59A9F34BB98290D49F6F9CA /* Build configuration list for PBXProject "Books" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -285,7 +292,6 @@
 			mainGroup = 3BD16B3E97AFDE1379874B65;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 14E0B303C0A68D907CF8B7D4 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -325,6 +331,7 @@
 				C671F779382C911B35DB33AD /* CoverView.swift in Sources */,
 				C1F5BAC9DDFAB65CCCBBA9F8 /* EPUBParser.swift in Sources */,
 				7C267361B7D11DF913CAAE8C /* FB2Parser.swift in Sources */,
+				1EE137E5927DED0AFD048A21 /* LibraryLocation.swift in Sources */,
 				F5E5A499A83B2C13F322FC56 /* LibraryStore.swift in Sources */,
 				86FFB2E28FDE7444AB8A9D46 /* LibraryView.swift in Sources */,
 				A79CF3C9836B44796A82FBAE /* LocalToolServer.swift in Sources */,
@@ -345,6 +352,7 @@
 				7DFAFCB0F3181D0B1856DD1E /* ReadingState.swift in Sources */,
 				CD0B7ACC6A3F067BC8FD9FF7 /* ReleaseUpdate.swift in Sources */,
 				44036F261703AC2A252C6091 /* SettingsView.swift in Sources */,
+				3F788046EE7AEF84B0F10097 /* SyncedSettings.swift in Sources */,
 				E4DF0C44CD00694CC95CAB75 /* TextExtractor.swift in Sources */,
 				2DA9227C1F9E2AA06F1024A7 /* TextParsers.swift in Sources */,
 				9B6E08B0F55EFB6B6B89C129 /* Updater.swift in Sources */,

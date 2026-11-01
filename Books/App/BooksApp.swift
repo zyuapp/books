@@ -153,7 +153,7 @@ enum AppActions {
         panel.canChooseDirectories = true
         panel.allowedContentTypes = contentTypes
         panel.prompt = "Add to Library"
-        panel.message = "Books are copied into iCloud Drive › Books"
+        panel.message = LibraryStore.shared.usesICloud ? "Books are copied into iCloud Drive › Books" : "Books are copied into your library"
         guard panel.runModal() == .OK else { return }
         var files: [URL] = []
         for url in panel.urls {

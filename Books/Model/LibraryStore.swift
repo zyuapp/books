@@ -14,8 +14,8 @@ struct BookRecord: Identifiable, Hashable {
     var fileDate: Date
 }
 
-/// The library lives in `iCloud Drive/Books/`. Book files sit anywhere inside it;
-/// per-book state and cover thumbnails sync in `Books/Reading Data/`.
+/// The library folder (see `LibraryLocation`). Book files sit anywhere inside it;
+/// per-book state and cover thumbnails sync in `Reading Data/`.
 @MainActor @Observable
 final class LibraryStore {
     static let shared = LibraryStore()
@@ -24,14 +24,15 @@ final class LibraryStore {
     private(set) var states: [String: ReadingState] = [:]
     private(set) var coverVersion = 0
     private(set) var isScanning = false
+    @ObservationIgnored private var located = false
     @ObservationIgnored private var statesLoaded = false
     @ObservationIgnored private var scannedOnce = false
     var lastError: String?
 
-    let rootURL: URL
-    let dataURL: URL
-    let coversURL: URL
-    let usesICloud: Bool
+    private(set) var rootURL = LibraryLocation.localRoot
+    private(set) var usesICloud = false
+    var dataURL: URL { rootURL.appendingPathComponent("Reading Data", isDirectory: true) }
+    var coversURL: URL { dataURL.appendingPathComponent("Covers", isDirectory: true) }
 
     @ObservationIgnored private var covers: [String: NSImage] = [:]
     @ObservationIgnored private var pendingSaves: [String: Task<Void, Never>] = [:]
@@ -39,24 +40,48 @@ final class LibraryStore {
     @ObservationIgnored private var watcher: DirectoryWatcher?
     @ObservationIgnored private var rescanTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// Bumped when the library folder changes, so work started for the old folder is dropped.
+    @ObservationIgnored private var generation = 0
 
     private static let recentsKey = "externalBookPaths"
 
-    private init() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
-        usesICloud = FileManager.default.fileExists(atPath: iCloud.path)
-        rootURL = (usesICloud ? iCloud : home.appendingPathComponent("Documents", isDirectory: true))
-            .appendingPathComponent("Books", isDirectory: true)
-        dataURL = rootURL.appendingPathComponent("Reading Data", isDirectory: true)
-        coversURL = dataURL.appendingPathComponent("Covers", isDirectory: true)
-    }
+    private init() {}
 
     func start() {
         guard !started else { return }
         started = true
-        let fm = FileManager.default
-        try? fm.createDirectory(at: coversURL, withIntermediateDirectories: true)
+        NotificationCenter.default.addObserver(forName: .NSUbiquityIdentityDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.locate() }
+        }
+        locate()
+    }
+
+    /// Picks the library folder and switches to it if it changed.
+    private func locate() {
+        Task {
+            let cloud = await Task.detached(priority: .userInitiated) { LibraryLocation.iCloudRoot() }.value
+            let root = cloud ?? LibraryLocation.localRoot
+            guard !located || root != rootURL else { return }
+            open(root, cloud: cloud != nil)
+        }
+    }
+
+    private func open(_ root: URL, cloud: Bool) {
+        flushAll()
+        generation += 1
+        watcher = nil
+        rescanTask?.cancel()
+        rootURL = root
+        usesICloud = cloud
+        books = []
+        states = [:]
+        covers = [:]
+        coverVersion += 1
+        statesLoaded = false
+        scannedOnce = false
+        located = true
+        try? FileManager.default.createDirectory(at: coversURL, withIntermediateDirectories: true)
+        SyncedSettings.shared.attach(to: dataURL)
         reloadStates()
         scan()
         watcher = DirectoryWatcher(url: rootURL) { [weak self] paths in
@@ -64,9 +89,10 @@ final class LibraryStore {
         }
     }
 
-    /// Waits (briefly) for the first state load and scan, so lookups don't miss existing books.
+    /// Waits for the library folder, then (briefly) for the first state load and scan, so lookups don't miss existing books.
     func waitUntilReady() async {
         start()
+        while !located { try? await Task.sleep(for: .milliseconds(50)) }
         for _ in 0..<60 where !(statesLoaded && scannedOnce) {
             try? await Task.sleep(for: .milliseconds(50))
         }
@@ -95,6 +121,7 @@ final class LibraryStore {
         let root = rootURL
         let data = dataURL
         let externals = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        let gen = generation
         Task.detached(priority: .utility) {
             var found: [BookRecord] = []
             let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
@@ -112,6 +139,7 @@ final class LibraryStore {
             var seen = Set<String>()
             let unique = found.filter { seen.insert($0.id).inserted }
             await MainActor.run {
+                guard gen == self.generation else { return }
                 self.books = unique
                 self.isScanning = false
                 self.scannedOnce = true
@@ -141,6 +169,7 @@ final class LibraryStore {
         let booksChanged = paths.contains { !$0.hasPrefix(dataPrefix) && $0 != dataURL.path }
         if !changedStates.isEmpty { reloadStates(Set(changedStates).map { URL(fileURLWithPath: $0) }) }
         if coverChanged { covers.removeAll(); coverVersion += 1 }
+        if paths.contains(where: SyncedSettings.shared.isSettingsFile) { SyncedSettings.shared.sync() }
         if booksChanged {
             rescanTask?.cancel()
             rescanTask = Task {
@@ -167,11 +196,13 @@ final class LibraryStore {
         guard metadataQueue.insert(book.id).inserted else { return }
         let coverURL = coverFile(book.id)
         let needsCover = !FileManager.default.fileExists(atPath: coverURL.path)
+        let gen = generation
         Task.detached(priority: .utility) {
             let meta = BookMetadata.extract(book.url, id: book.id, wantCover: needsCover)
             if let jpeg = meta.coverJPEG { try? jpeg.write(to: coverURL, options: .atomic) }
             await MainActor.run {
                 self.metadataQueue.remove(book.id)
+                guard gen == self.generation else { return }
                 self.update(book.id) { s in
                     s.title = s.title ?? meta.title
                     s.author = s.author ?? meta.author
@@ -193,6 +224,7 @@ final class LibraryStore {
     /// Loads state files (all of them, or just the changed ones) and merges iCloud conflict copies.
     private func reloadStates(_ only: [URL]? = nil) {
         let dir = dataURL
+        let gen = generation
         Task.detached(priority: .userInitiated) {
             let files = only ?? ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
             var loaded: [String: ReadingState] = [:]
@@ -204,6 +236,7 @@ final class LibraryStore {
             }
             let conflictIDs = Set(conflicts.compactMap { Self.readState($0)?.bookID })
             await MainActor.run {
+                guard gen == self.generation else { return }
                 for (id, disk) in loaded {
                     self.states[id] = self.states[id].map { $0.merged(with: disk) } ?? disk
                 }
@@ -274,7 +307,7 @@ final class LibraryStore {
 
     // MARK: Importing & opening
 
-    /// Copies books into the iCloud library. Returns the records of the copies.
+    /// Copies books into the library folder. Returns the records of the copies.
     @discardableResult
     func importBooks(_ urls: [URL]) -> [BookRecord] {
         var imported: [BookRecord] = []
@@ -302,7 +335,7 @@ final class LibraryStore {
         return imported
     }
 
-    /// Resolves a file opened from Finder into a library record, copying it into iCloud when appropriate.
+    /// Resolves a file opened from Finder into a library record, copying it into the library when appropriate.
     func recordForOpening(_ url: URL) -> BookRecord? {
         guard let format = BookFormat(url: url) else {
             lastError = PublicationError.unsupportedFormat(url.pathExtension).localizedDescription

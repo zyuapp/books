@@ -24,7 +24,7 @@ To make Books the default for your books, open **Books → Settings → General 
 
 ## Your library
 
-Books keeps your library in `iCloud Drive/Books/` (or `~/Documents/Books/` without iCloud Drive). Reading positions, highlights, notes and Claude conversations sync through `Books/Reading Data/`. DRM-protected books can't be opened.
+Books keeps your library in its own iCloud Drive folder, `iCloud Drive › Books` (or `~/Documents/Books/` without iCloud Drive). Reading positions, highlights, notes, Claude conversations and settings sync through `Books/Reading Data/`. DRM-protected books can't be opened.
 
 ## Ask Claude
 
