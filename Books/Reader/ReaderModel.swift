@@ -551,19 +551,6 @@ final class ReaderModel {
         claudeFocusRequest += 1
     }
 
-    func context(for scope: ClaudeScope) async -> String {
-        switch scope {
-        case .passage: return ""
-        case .page: return await engine?.currentPageText() ?? ""
-        case .chapter: return await engine?.currentSectionText() ?? ""
-        case .book: return await fullText()
-        }
-    }
-
-    private func fullText() async -> String {
-        await bookTexts().joined(separator: "\n\n")
-    }
-
     /// Plain text of every spine item (pages for PDFs), cached.
     func bookTexts() async -> [String] {
         if let bookText { return bookText }

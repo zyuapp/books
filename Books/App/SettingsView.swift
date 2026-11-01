@@ -95,7 +95,7 @@ private struct ClaudeSettings: View {
         Task {
             var text = ""
             do {
-                for try await event in ClaudeService.stream(prompt: "Reply with exactly: Ready to read.", system: "You are a test.", model: .haiku) {
+                for try await event in ClaudeService.stream(prompt: "Reply with exactly: Ready to read.", system: "You are a test.", model: .haiku, effort: .low) {
                     if case .text(let t) = event { text += t }
                 }
                 testResult = "✓ " + text.trimmingCharacters(in: .whitespacesAndNewlines)

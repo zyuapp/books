@@ -27,6 +27,30 @@ enum ClaudeModel: String, CaseIterable, Identifiable {
     }
 }
 
+enum ClaudeEffort: String, CaseIterable, Identifiable {
+    case low, medium, high, xhigh, max
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        case .xhigh: "Extra High"
+        case .max: "Max"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .low: "Quickest replies"
+        case .medium: "Balanced"
+        case .high: "Thinks it through"
+        case .xhigh: "Thinks longer"
+        case .max: "Thinks hardest, slowest"
+        }
+    }
+}
+
 enum ClaudeEvent: Sendable {
     case text(String)
     case finished
@@ -98,7 +122,7 @@ enum ClaudeService {
     }
 
     /// `toolsConfig` is `--mcp-config` JSON for Books' own tools; Claude gets no other tools.
-    static func stream(prompt: String, system: String, model: ClaudeModel, toolsConfig: String? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
+    static func stream(prompt: String, system: String, model: ClaudeModel, effort: ClaudeEffort, toolsConfig: String? = nil) -> AsyncThrowingStream<ClaudeEvent, Error> {
         AsyncThrowingStream { continuation in
             let process = Process()
             let cancelled = LockedFlag()
@@ -116,7 +140,7 @@ enum ClaudeService {
                 process.arguments = [
                     "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                     "--tools", "", "--setting-sources", "", "--no-session-persistence", "--disable-slash-commands",
-                    "--model", model.rawValue, "--system-prompt", system, "--strict-mcp-config",
+                    "--model", model.rawValue, "--effort", effort.rawValue, "--system-prompt", system, "--strict-mcp-config",
                 ]
                 if let toolsConfig {
                     process.arguments! += ["--mcp-config", toolsConfig, "--allowedTools", "mcp__books"]

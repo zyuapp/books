@@ -9,7 +9,6 @@ final class ClaudeChat {
     var streamingText = ""
     var isStreaming = false
     var error: String?
-    var scope = ClaudeChat.defaultScope
     /// What a running tool is doing, e.g. "Reading your highlights".
     var toolProgress: String?
     /// Changes Claude made this session, kept so they can be undone. `messageID` is nil while the answer streams.
@@ -19,32 +18,23 @@ final class ClaudeChat {
     var model: ClaudeModel {
         didSet { UserDefaults.standard.set(model.rawValue, forKey: "claudeModel") }
     }
+    var effort: ClaudeEffort {
+        didSet { UserDefaults.standard.set(effort.rawValue, forKey: "claudeEffort") }
+    }
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private weak var reader: ReaderModel?
 
-    /// The scope new conversations start with: the last one the reader picked.
-    static var defaultScope: ClaudeScope {
-        get { ClaudeScope(rawValue: UserDefaults.standard.string(forKey: "claudeScope") ?? "") ?? .page }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "claudeScope") }
-    }
-
-    func choose(_ s: ClaudeScope) {
-        scope = s
-        if s != .passage { Self.defaultScope = s }
-    }
-
     init(reader: ReaderModel) {
         self.reader = reader
         model = ClaudeModel(rawValue: UserDefaults.standard.string(forKey: "claudeModel") ?? "") ?? .sonnet
+        effort = ClaudeEffort(rawValue: UserDefaults.standard.string(forKey: "claudeEffort") ?? "") ?? .low
     }
 
     func begin(with seed: ClaudeRequestSeed) {
         cancel()
         thread = ChatThread(title: seed.passage.map { String($0.prefix(60)) } ?? (reader?.chapterTitle ?? "Question"),
                             passage: seed.passage, locator: seed.locator)
-        scope = Self.defaultScope
-        thread?.contextScope = scope
         error = nil
         if let action = seed.action { send(action.prompt(hasPassage: seed.passage != nil)) }
     }
@@ -54,13 +44,11 @@ final class ClaudeChat {
         thread = nil
         error = nil
         input = ""
-        scope = Self.defaultScope
     }
 
     func open(_ t: ChatThread) {
         cancel()
         thread = t
-        scope = t.contextScope
         error = nil
     }
 
@@ -80,7 +68,6 @@ final class ClaudeChat {
         if thread == nil {
             thread = ChatThread(title: String(question.prefix(60)), passage: nil, locator: reader.location)
         }
-        thread!.contextScope = scope
         let history = thread!.messages
         thread!.messages.append(ChatMessage(role: .user, text: question))
         thread!.updated = Date()
@@ -91,12 +78,12 @@ final class ClaudeChat {
         let passage = thread!.passage
         let undone = undoneSinceLastSend
         undoneSinceLastSend = []
-        let scope = scope
         let model = model
+        let effort = effort
         task = Task {
-            let context = await reader.context(for: scope)
+            let page = await reader.engine?.currentPageText() ?? ""
             let system = Self.systemPrompt(reader: reader)
-            var prompt = Self.prompt(context: context, scope: scope, passage: passage, history: history, question: question)
+            var prompt = Self.prompt(page: page, passage: passage, history: history, question: question)
             if !undone.isEmpty {
                 prompt = "<app_events>\nThe reader pressed Undo on: " + undone.joined(separator: "; ") + "\n</app_events>\n\n" + prompt
             }
@@ -113,7 +100,7 @@ final class ClaudeChat {
                 toolProgress = nil
             }
             do {
-                for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model, toolsConfig: access?.config) {
+                for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model, effort: effort, toolsConfig: access?.config) {
                     if Task.isCancelled { break }
                     if case .text(let t) = event { streamingText += t }
                 }
@@ -172,7 +159,9 @@ final class ClaudeChat {
         return """
         You are a warm, perceptive reading companion built into a book reader app. The reader is reading \
         “\(reader.title)”\(author.map { " by \($0)" } ?? ""). They are currently at: \(where_).
-        Answer from the provided book text when it's relevant, and from your own knowledge otherwise. \
+        You're given the text of the page they're on. When a question needs more of the book, such as the chapter, \
+        earlier events or a theme across the book, use read_text, search_text and get_table_of_contents to look it up. \
+        Answer from the book text when it's relevant, and from your own knowledge otherwise. \
         Be concise and specific: short paragraphs, quotes from the text when helpful, light Markdown (bold, italics, short lists). \
         The chat draws ```mermaid code blocks as diagrams: when a diagram, flowchart, timeline or map of ideas would help, or the \
         reader asks for one, include it as a mermaid block rather than describing it. The panel is narrow, so lay diagrams out \
@@ -182,12 +171,12 @@ final class ClaudeChat {
         """
     }
 
-    private static func prompt(context: String, scope: ClaudeScope, passage: String?, history: [ChatMessage], question: String) -> String {
+    private static func prompt(page: String, passage: String?, history: [ChatMessage], question: String) -> String {
         var parts: [String] = []
-        let limit = scope == .book ? 600_000 : 150_000
-        if !context.isEmpty {
-            let clipped = context.count > limit ? String(context.prefix(limit)) + "\n[…truncated…]" : context
-            parts.append("<book_text scope=\"\(scope.rawValue)\">\n\(clipped)\n</book_text>")
+        if !page.isEmpty {
+            let limit = 150_000
+            let clipped = page.count > limit ? String(page.prefix(limit)) + "\n[…truncated…]" : page
+            parts.append("<current_page>\n\(clipped)\n</current_page>")
         }
         if let passage { parts.append("<selected_passage>\n\(passage)\n</selected_passage>") }
         if !history.isEmpty {
@@ -323,7 +312,7 @@ struct ClaudePanel: View {
                             } else if let actions = m.actions, !actions.isEmpty {
                                 ActivityList(items: actions.map { ChatActivity(activity: AgentActivity(symbol: "checkmark.circle", title: $0)) }, undo: nil)
                             }
-                            MessageView(message: m, onCopy: { copy(m.text) }, onSaveNote: m.role == .assistant ? { saveNote(m.text) } : nil)
+                            MessageView(message: m)
                         }
                         .id(m.id)
                     }
@@ -370,7 +359,7 @@ struct ClaudePanel: View {
                     .font(.system(.title3, design: .serif).weight(.semibold))
                     .lineLimit(2)
                 Text(hasPassage ? "Pick a starting point or type your own question."
-                                : "Claude can see \(chat.scope == .book ? "the whole book" : chat.scope == .page ? "the page you’re on" : "the chapter you’re reading").")
+                                : "Claude can see the page you’re on and look up the rest of the book.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             VStack(spacing: 6) {
@@ -413,22 +402,6 @@ struct ClaudePanel: View {
                 .accessibilityLabel("Question for Claude")
             HStack(spacing: 6) {
                 Menu {
-                    Picker("Context", selection: Binding(get: { chat.scope }, set: { chat.choose($0) })) {
-                        ForEach(ClaudeScope.allCases.filter { $0 != .passage || chat.thread?.passage != nil }, id: \.self) { s in
-                            Label(s == .passage ? "Selection Only" : s.label, systemImage: s.symbol).tag(s)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Chip(symbol: chat.scope.symbol, title: chat.scope == .passage ? "Selection" : chat.scope.label)
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("What Claude can read")
-
-                Menu {
                     Picker("Model", selection: $chat.model) {
                         ForEach(ClaudeModel.allCases) { m in
                             Label { Text("\(m.name) — \(m.detail)") } icon: { Image(systemName: m.symbol) }.tag(m)
@@ -443,6 +416,22 @@ struct ClaudePanel: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Claude model")
+
+                Menu {
+                    Picker("Effort", selection: $chat.effort) {
+                        ForEach(ClaudeEffort.allCases) { e in
+                            Text("\(e.name) — \(e.detail)").tag(e)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Chip(symbol: "gauge.with.dots.needle.33percent", title: chat.effort.name)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("How hard Claude thinks")
 
                 Spacer()
 
@@ -532,25 +521,6 @@ struct ClaudePanel: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    private func saveNote(_ text: String) {
-        let passage = chat.thread?.passage
-        let locator = chat.thread?.locator ?? reader.location
-        reader.library.update(reader.book.id) { s in
-            if let passage, let i = s.highlights.lastIndex(where: { !$0.deleted && $0.text == passage }) {
-                s.highlights[i].note = [s.highlights[i].note, text].compactMap { $0 }.joined(separator: "\n\n")
-                s.highlights[i].updated = Date()
-            } else {
-                s.bookmarks.append(Bookmark(locator: locator, snippet: "Claude: " + String(text.prefix(300))))
-            }
-        }
-        reader.engine?.refreshHighlights()
     }
 }
 
@@ -739,10 +709,6 @@ private struct ErrorCard: View {
 private struct MessageView: View {
     let message: ChatMessage
     var streaming = false
-    var onCopy: (() -> Void)?
-    var onSaveNote: (() -> Void)?
-    @State private var hovering = false
-    @State private var hideTask: Task<Void, Never>?
     @AppStorage(ChatTextSize.key) private var textScale = 1.0
 
     var body: some View {
@@ -757,37 +723,7 @@ private struct MessageView: View {
                     .glassEffect(.regular.tint(Color(hex: "#C96442").opacity(0.35)), in: .rect(cornerRadius: 18))
             }
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
-                if !streaming {
-                    HStack(spacing: 2) {
-                        if let onCopy {
-                            Button(action: onCopy) { Label("Copy", systemImage: "doc.on.doc") }
-                        }
-                        if let onSaveNote {
-                            Button(action: onSaveNote) { Label("Save to Notes", systemImage: "note.text.badge.plus") }
-                        }
-                    }
-                    .buttonStyle(MessageActionStyle())
-                    .opacity(hovering ? 1 : 0)
-                    .animation(.easeOut(duration: 0.15), value: hovering)
-                }
-            }
-            .contentShape(Rectangle())
-            .onHover(perform: setHovering)
-        }
-    }
-
-    /// Selectable text reports brief exits as the pointer crosses it, so hiding waits for the pointer to stay out.
-    private func setHovering(_ inside: Bool) {
-        hideTask?.cancel()
-        if inside {
-            hovering = true
-        } else {
-            hideTask = Task {
-                try? await Task.sleep(for: .milliseconds(300))
-                if !Task.isCancelled { hovering = false }
-            }
+            MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
         }
     }
 }
@@ -862,17 +798,6 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
-    }
-}
-
-private struct MessageActionStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Capsule().fill(.primary.opacity(configuration.isPressed ? 0.14 : 0.06)))
     }
 }
 

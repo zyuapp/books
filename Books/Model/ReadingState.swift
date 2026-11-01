@@ -86,26 +86,9 @@ struct ChatThread: Syncable, Hashable, Sendable {
     }
 }
 
+/// Context older versions let the reader pick; kept so synced threads still decode.
 enum ClaudeScope: String, Codable, CaseIterable, Sendable {
     case passage, page, chapter, book
-
-    var symbol: String {
-        switch self {
-        case .passage: "text.quote"
-        case .page: "doc"
-        case .chapter: "doc.text"
-        case .book: "books.vertical"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .passage: "Selection"
-        case .page: "This Page"
-        case .chapter: "Chapter"
-        case .book: "Whole Book"
-        }
-    }
 }
 
 enum ReadingStatus: String, Codable, CaseIterable, Sendable {
