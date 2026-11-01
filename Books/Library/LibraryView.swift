@@ -88,7 +88,7 @@ struct LibraryView: View {
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
                     .padding(10)
                     .overlay(Label("Add to Library", systemImage: "plus.circle.fill").font(.title2.weight(.semibold))
-                        .padding(18).glassEffect(.regular, in: .capsule))
+                        .padding(18).glassSurface(in: .capsule))
                     .allowsHitTesting(false)
             }
         }
@@ -222,7 +222,7 @@ struct LibraryView: View {
                 .padding(.horizontal, 30)
                 .padding(.vertical, 24)
             }
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            .softScrollEdges(.top)
             .overlay {
                 if filtered.isEmpty {
                     ContentUnavailableView(query.isEmpty ? "Nothing Here Yet" : "No Results",
@@ -354,7 +354,7 @@ private struct EmptyLibrary: View {
             Button(action: onAdd) {
                 Label("Add Books", systemImage: "plus").font(.headline).padding(.horizontal, 8)
             }
-            .buttonStyle(.glassProminent)
+            .glassProminentButtonStyle()
             .tint(Color(hex: "#C96442"))
             .controlSize(.extraLarge)
         }
@@ -420,10 +420,10 @@ struct BookCard: View {
     private func badge(_ state: ReadingState) -> some View {
         if !book.isDownloaded {
             Image(systemName: "icloud.and.arrow.down").font(.caption.weight(.semibold))
-                .padding(6).glassEffect(.regular, in: .circle)
+                .padding(6).glassSurface(in: .circle)
         } else if state.status == .finished {
             Image(systemName: "checkmark").font(.caption.weight(.bold))
-                .padding(6).glassEffect(.regular.tint(.green.opacity(0.5)), in: .circle)
+                .padding(6).glassSurface(in: .circle, tint: .green.opacity(0.5))
         }
     }
 }
@@ -456,7 +456,7 @@ private struct HomeView: View {
             }
             .padding(.vertical, 24)
         }
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .softScrollEdges(.top)
     }
 }
 
@@ -494,7 +494,7 @@ private struct HeroCard: View {
                     Button(action: open) {
                         Label("Resume", systemImage: "book.fill").font(.headline).padding(.horizontal, 6)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassProminentButtonStyle()
                     .tint(Color(hex: "#C96442"))
                     .controlSize(.large)
                     .padding(.top, 6)
@@ -504,7 +504,7 @@ private struct HeroCard: View {
             .padding(30)
         }
         .frame(height: 285)
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        .glassSurface(in: .rect(cornerRadius: 28))
         .clipShape(.rect(cornerRadius: 28))
         .padding(.horizontal, 30)
         .onTapGesture(count: 2, perform: open)

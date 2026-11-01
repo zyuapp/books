@@ -190,12 +190,12 @@ private struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            GlassEffectContainer(spacing: 8) {
+            GlassGroup(spacing: 8) {
                 HStack(spacing: 6) {
                     Button { OpenBridge.shared.showLibrary() } label: {
                         Image(systemName: "chevron.left").fontWeight(.semibold).frame(width: 18, height: 18)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .help("Back to Library (⇧⌘L)")
                     .accessibilityLabel("Back to Library")
                     panelButton(.contents, symbol: "list.bullet", help: "Contents")
@@ -221,12 +221,12 @@ private struct TopBar: View {
 
             Spacer(minLength: 12)
 
-            GlassEffectContainer(spacing: 8) {
+            GlassGroup(spacing: 8) {
                 HStack(spacing: 6) {
                     Button { model.showSettings.toggle() } label: {
                         Image(systemName: "textformat.size").frame(width: 18, height: 18)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .help("Reading Settings")
                     .accessibilityLabel("Reading Settings")
                     .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
@@ -239,7 +239,7 @@ private struct TopBar: View {
                             .frame(width: 18, height: 18)
                             .contentTransition(.symbolEffect(.replace))
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .help("Bookmark This Page (⌘D)")
                     .accessibilityLabel("Bookmark")
 
@@ -248,7 +248,7 @@ private struct TopBar: View {
                     } label: {
                         Image(systemName: "sparkles").frame(width: 18, height: 18)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .tint(model.showClaude ? Color(hex: "#C96442") : nil)
                     .help("Ask Claude (⌘L)")
                     .accessibilityLabel("Ask Claude")
@@ -267,7 +267,7 @@ private struct TopBar: View {
         } label: {
             Image(systemName: symbol).frame(width: 18, height: 18)
         }
-        .buttonStyle(.glass)
+        .glassButtonStyle()
         .tint(model.panel == panel ? Color.accentColor : nil)
         .help(help)
         .accessibilityLabel(help)
@@ -315,7 +315,7 @@ private struct BottomBar: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
-        .glassEffect(.regular, in: .capsule)
+        .glassSurface(in: .capsule)
         .readerOverlay()
         .padding(.bottom, 14)
     }
@@ -370,7 +370,7 @@ private struct BackPill: View {
             .buttonStyle(.plain)
         }
         .padding(.trailing, 4)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassSurface(in: .capsule, interactive: true)
         .readerOverlay()
     }
 }
@@ -437,7 +437,7 @@ private struct SelectionBar: View {
             }
         }
         .frame(height: 40)
-        .glassEffect(.regular, in: .capsule)
+        .glassSurface(in: .capsule)
         .fixedSize()
         .readerOverlay()
         .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
@@ -489,7 +489,7 @@ private struct FootnoteCard: View {
         }
         .padding(16)
         .frame(width: 360)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .glassSurface(in: .rect(cornerRadius: 20))
         .readerOverlay()
         .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
     }
@@ -522,7 +522,7 @@ private struct NoteEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { save(text); dismiss() }.keyboardShortcut(.defaultAction).buttonStyle(.glassProminent)
+                Button("Save") { save(text); dismiss() }.keyboardShortcut(.defaultAction).glassProminentButtonStyle()
             }
         }
         .padding(22)

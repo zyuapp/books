@@ -24,8 +24,8 @@ struct SidePanel: View {
             }
         }
         .frame(width: 330)
-        .glassEffect(.regular.tint(ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor.opacity(0.6)),
-                     in: .rect(cornerRadius: 26))
+        .glassSurface(in: .rect(cornerRadius: 26),
+                      tint: ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor.opacity(0.6))
         .readerOverlay()
         .shadow(color: .black.opacity(0.12), radius: 30, y: 10)
     }
@@ -70,7 +70,7 @@ private struct ContentsList: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 14)
             }
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .softScrollEdges(.all)
             .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
         }
     }
@@ -160,7 +160,7 @@ private struct NotesList: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 14)
             }
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .softScrollEdges(.all)
         }
     }
 
@@ -244,7 +244,7 @@ private struct SearchPanel: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .glassEffect(.regular, in: .capsule)
+            .glassSurface(in: .capsule)
             .padding(.horizontal, 14)
             .padding(.bottom, 10)
             .onChange(of: model.searchQuery) { _, q in model.search(q) }
@@ -279,7 +279,7 @@ private struct SearchPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
                 }
-                .scrollEdgeEffectStyle(.soft, for: .all)
+                .softScrollEdges(.all)
             }
         }
         .onAppear { DispatchQueue.main.async { focused = true } }
@@ -308,7 +308,7 @@ struct ReaderSettingsPopover: View {
                         Text("A").font(.system(size: 21, design: .serif)).frame(maxWidth: .infinity, minHeight: 26)
                     }
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
 
                 row("Font") {
                     Picker("Font", selection: $s.prefs.fontID) {
@@ -345,7 +345,7 @@ struct ReaderSettingsPopover: View {
                     }
                     .help("Zoom In (⌘+)")
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
             }
 
             if kind != .comic {

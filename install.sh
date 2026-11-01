@@ -14,7 +14,7 @@ say() { printf '%s\n' "$1"; }
 
 [ "$(uname -s)" = Darwin ] || fail "Books runs on macOS only."
 major="$(sw_vers -productVersion | cut -d. -f1)"
-[ "$major" -ge 26 ] || fail "Books needs macOS 26 or later, and this Mac has $(sw_vers -productVersion)."
+[ "$major" -ge 15 ] || fail "Books needs macOS 15 or later, and this Mac has $(sw_vers -productVersion)."
 command -v curl >/dev/null 2>&1 || fail "curl is required."
 
 applications=/Applications

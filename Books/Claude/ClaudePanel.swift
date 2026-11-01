@@ -288,7 +288,7 @@ struct ClaudePanel: View {
         }
         .animation(.smooth(duration: 0.3), value: reader.claudeShowsHistory)
         .frame(maxWidth: reader.claudeExpanded ? .infinity : 400)
-        .glassEffect(.regular.tint(theme.backgroundColor.opacity(0.6)), in: .rect(cornerRadius: 26))
+        .glassSurface(in: .rect(cornerRadius: 26), tint: theme.backgroundColor.opacity(0.6))
         .clipShape(.rect(cornerRadius: 26))
         .readerOverlay()
         .shadow(color: .black.opacity(0.14), radius: 30, y: 10)
@@ -392,7 +392,7 @@ struct ClaudePanel: View {
                 .frame(maxWidth: Self.readableWidth)
                 .frame(maxWidth: .infinity)
             }
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .softScrollEdges(.all)
             .scrollPosition($scrollPosition)
             .onScrollGeometryChange(for: CGFloat?.self) { g in
                 g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 8 ? nil : g.contentOffset.y
@@ -597,7 +597,7 @@ struct ClaudePanel: View {
                     .frame(maxWidth: Self.readableWidth)
                     .frame(maxWidth: .infinity)
                 }
-                .scrollEdgeEffectStyle(.soft, for: .all)
+                .softScrollEdges(.all)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -780,7 +780,7 @@ private struct MessageView: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .glassEffect(.regular.tint(Color(hex: "#C96442").opacity(0.35)), in: .rect(cornerRadius: 18))
+                    .glassSurface(in: .rect(cornerRadius: 18), tint: Color(hex: "#C96442").opacity(0.35))
             }
         } else {
             MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
