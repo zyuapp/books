@@ -8,7 +8,7 @@ struct ReaderWindow: View {
     var body: some View {
         if let book = library.book(bookID) {
             ReaderView(book: book)
-        } else if library.isScanning || library.books.isEmpty {
+        } else if !library.scannedOnce {
             ProgressView().frame(minWidth: 600, minHeight: 500)
         } else {
             ContentUnavailableView {

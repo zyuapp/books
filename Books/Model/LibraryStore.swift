@@ -26,7 +26,8 @@ final class LibraryStore {
     private(set) var isScanning = false
     @ObservationIgnored private var located = false
     @ObservationIgnored private var statesLoaded = false
-    @ObservationIgnored private var scannedOnce = false
+    /// The library folder has been scanned at least once since it was opened.
+    private(set) var scannedOnce = false
     var lastError: String?
 
     private(set) var rootURL = LibraryLocation.localRoot
