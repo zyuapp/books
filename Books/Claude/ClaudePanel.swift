@@ -734,14 +734,16 @@ struct MarkdownText: View {
     var rendersDiagrams = true
     @AppStorage(ChatTextSize.key) private var scale = 1.0
 
+    private func serif(_ size: CGFloat) -> Font { .custom("Charter", size: size * scale) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let level, let t):
-                    Text(Markdown.attributed(t)).font(.system(size: (level <= 2 ? 15 : 14) * scale, weight: level <= 2 ? .bold : .semibold))
+                    Text(Markdown.attributed(t)).font(serif(level <= 2 ? 17 : 15.5).bold())
                 case .paragraph(let t):
-                    Text(Markdown.attributed(t)).font(.system(size: 14 * scale)).lineSpacing(3 * scale)
+                    Text(Markdown.attributed(t)).font(serif(15.5)).lineSpacing(3.5 * scale)
                 case .code(let c, "mermaid") where rendersDiagrams:
                     MermaidDiagram(source: c)
                 case .code(let c, _):
@@ -752,14 +754,14 @@ struct MarkdownText: View {
                     HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 1.5).fill(.secondary.opacity(0.5)).frame(width: 3)
                         Text(Markdown.attributed(lines.joined(separator: " ")))
-                            .font(.system(size: 14 * scale, design: .serif).italic()).foregroundStyle(.secondary)
+                            .font(serif(15.5).italic()).foregroundStyle(.secondary)
                     }
                 case .list(let ordered, let items):
                     VStack(alignment: .leading, spacing: 5) {
                         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14 * scale)).foregroundStyle(.secondary).monospacedDigit()
-                                Text(Markdown.attributed(item)).font(.system(size: 14 * scale))
+                                Text(ordered ? "\(i + 1)." : "•").font(serif(15.5)).foregroundStyle(.secondary).monospacedDigit()
+                                Text(Markdown.attributed(item)).font(serif(15.5)).lineSpacing(3 * scale)
                             }
                         }
                     }
