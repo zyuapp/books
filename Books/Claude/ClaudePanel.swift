@@ -742,6 +742,7 @@ private struct MessageView: View {
     var onCopy: (() -> Void)?
     var onSaveNote: (() -> Void)?
     @State private var hovering = false
+    @State private var hideTask: Task<Void, Never>?
     @AppStorage(ChatTextSize.key) private var textScale = 1.0
 
     var body: some View {
@@ -768,10 +769,25 @@ private struct MessageView: View {
                         }
                     }
                     .buttonStyle(MessageActionStyle())
-                    .opacity(hovering ? 1 : 0.0)
+                    .opacity(hovering ? 1 : 0)
+                    .animation(.easeOut(duration: 0.15), value: hovering)
                 }
             }
-            .onHover { hovering = $0 }
+            .contentShape(Rectangle())
+            .onHover(perform: setHovering)
+        }
+    }
+
+    /// Selectable text reports brief exits as the pointer crosses it, so hiding waits for the pointer to stay out.
+    private func setHovering(_ inside: Bool) {
+        hideTask?.cancel()
+        if inside {
+            hovering = true
+        } else {
+            hideTask = Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if !Task.isCancelled { hovering = false }
+            }
         }
     }
 }
