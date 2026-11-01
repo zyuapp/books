@@ -69,19 +69,30 @@ struct ChatThread: Syncable, Hashable, Sendable {
     var title: String
     var passage: String?
     var locator: Locator?
+    /// Never `.page`, so older versions syncing this thread can still decode it; see `pageOnly`.
     var scope: ClaudeScope = .chapter
+    var pageOnly: Bool?
     var messages: [ChatMessage] = []
     var created = Date()
     var updated = Date()
     var deleted = false
+
+    var contextScope: ClaudeScope {
+        get { pageOnly == true ? .page : scope }
+        set {
+            scope = newValue == .page ? .chapter : newValue
+            pageOnly = newValue == .page ? true : nil
+        }
+    }
 }
 
 enum ClaudeScope: String, Codable, CaseIterable, Sendable {
-    case passage, chapter, book
+    case passage, page, chapter, book
 
     var symbol: String {
         switch self {
         case .passage: "text.quote"
+        case .page: "doc"
         case .chapter: "doc.text"
         case .book: "books.vertical"
         }
@@ -90,6 +101,7 @@ enum ClaudeScope: String, Codable, CaseIterable, Sendable {
     var label: String {
         switch self {
         case .passage: "Selection"
+        case .page: "This Page"
         case .chapter: "Chapter"
         case .book: "Whole Book"
         }

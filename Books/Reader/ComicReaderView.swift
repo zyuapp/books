@@ -72,6 +72,7 @@ final class ComicEngine: ReaderEngine {
     func reveal(_ result: SearchResult, query: String) { go(to: result.locator, fragment: nil, atEnd: false) }
     func clearSelection() {}
     func currentSectionText() async -> String { "" }
+    func currentPageText() async -> String { "" }
     func currentSnippet() async -> String { "Page \(index + 1)" }
     func start() { moved() }
     func focusContent() { NSApp.keyWindow?.makeFirstResponder(nil) }
@@ -108,7 +109,6 @@ struct ComicReaderView: View {
             .id(engine.visiblePages.first)
             .transition(.opacity)
             .overlay(EventCatcher(
-                onSwipe: { forward in forward ? model.nextPage() : model.previousPage() },
                 overlayRects: { model.overlayRects },
                 rightToLeft: { engine.rightToLeft },
                 onClick: { fractionX in
@@ -126,9 +126,8 @@ struct ComicReaderView: View {
     }
 }
 
-/// Captures clicks, swipes and mouse movement for SwiftUI-rendered readers.
+/// Captures clicks and mouse movement for SwiftUI-rendered readers, and swallows wheel scrolling.
 struct EventCatcher: NSViewRepresentable {
-    var onSwipe: (Bool) -> Void
     var overlayRects: () -> [CGRect] = { [] }
     var rightToLeft: () -> Bool = { false }
     var onClick: ((CGFloat) -> Void)? = nil
@@ -144,10 +143,6 @@ struct EventCatcher: NSViewRepresentable {
 
     final class CatcherView: NSView {
         var handlers: EventCatcher?
-        private var accumulated: CGFloat = 0
-        private var fired = false
-        private var horizontal = false
-        private var lastWheel = Date.distantPast
 
         override var acceptsFirstResponder: Bool { true }
 
@@ -156,24 +151,7 @@ struct EventCatcher: NSViewRepresentable {
             return super.hitTest(point)
         }
 
-        override func scrollWheel(with event: NSEvent) {
-            if !event.momentumPhase.isEmpty { return }
-            if event.phase.isEmpty {
-                guard Date().timeIntervalSince(lastWheel) > 0.28 else { return }
-                let d = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) ? event.scrollingDeltaY : event.scrollingDeltaX
-                if d != 0 { handlers?.onSwipe(d < 0) }
-                lastWheel = Date()
-                return
-            }
-            if event.phase.contains(.began) { accumulated = 0; fired = false; horizontal = false }
-            if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) { horizontal = true }
-            accumulated += abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
-            if !fired && abs(accumulated) > 50 {
-                fired = true
-                let forward = accumulated < 0
-                handlers?.onSwipe(horizontal && handlers?.rightToLeft() == true ? !forward : forward)
-            }
-        }
+        override func scrollWheel(with event: NSEvent) {}
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()

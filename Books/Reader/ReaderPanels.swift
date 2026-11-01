@@ -290,6 +290,7 @@ private struct SearchPanel: View {
 
 struct ReaderSettingsPopover: View {
     let kind: PublicationKind
+    var reader: ReaderModel?
     @State private var settings = ReaderSettings.shared
 
     var body: some View {
@@ -325,6 +326,24 @@ struct ReaderSettingsPopover: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+            }
+
+            if kind == .pdf, let reader {
+                HStack(spacing: 10) {
+                    Button { reader.engine?.zoom(by: -1) } label: {
+                        Image(systemName: "minus.magnifyingglass").frame(maxWidth: .infinity, minHeight: 26)
+                    }
+                    .help("Zoom Out (⌘−)")
+                    Button { reader.engine?.zoom(by: 0) } label: {
+                        Text(reader.zoomPercent.map { "\($0)%" } ?? "Fit").font(.callout.monospacedDigit()).frame(width: 52, height: 26)
+                    }
+                    .help("Fit to Window (⌘0)")
+                    Button { reader.engine?.zoom(by: 1) } label: {
+                        Image(systemName: "plus.magnifyingglass").frame(maxWidth: .infinity, minHeight: 26)
+                    }
+                    .help("Zoom In (⌘+)")
+                }
+                .buttonStyle(.glass)
             }
 
             if kind != .comic {

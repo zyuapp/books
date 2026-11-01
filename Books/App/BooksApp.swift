@@ -257,14 +257,22 @@ struct BooksCommands: Commands {
             Divider()
             Button("Reading Settings") { reader?.showSettings.toggle() }.keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(reader == nil)
-            Button("Bigger Text") { ReaderSettings.shared.prefs.fontSize = min(40, ReaderSettings.shared.prefs.fontSize + 1) }
-                .keyboardShortcut("=")
-            Button("Smaller Text") { ReaderSettings.shared.prefs.fontSize = max(12, ReaderSettings.shared.prefs.fontSize - 1) }
-                .keyboardShortcut("-")
-            Button("Default Text Size") { ReaderSettings.shared.prefs.fontSize = ReaderPreferences().fontSize }
-                .keyboardShortcut("0")
+            Button(isPDF ? "Zoom In" : "Bigger Text") {
+                if isPDF { reader?.engine?.zoom(by: 1) } else { ReaderSettings.shared.prefs.fontSize = min(40, ReaderSettings.shared.prefs.fontSize + 1) }
+            }
+            .keyboardShortcut("=")
+            Button(isPDF ? "Zoom Out" : "Smaller Text") {
+                if isPDF { reader?.engine?.zoom(by: -1) } else { ReaderSettings.shared.prefs.fontSize = max(12, ReaderSettings.shared.prefs.fontSize - 1) }
+            }
+            .keyboardShortcut("-")
+            Button(isPDF ? "Fit to Window" : "Default Text Size") {
+                if isPDF { reader?.engine?.zoom(by: 0) } else { ReaderSettings.shared.prefs.fontSize = ReaderPreferences().fontSize }
+            }
+            .keyboardShortcut("0")
         }
     }
+
+    private var isPDF: Bool { reader?.publication?.kind == .pdf }
 
     private func toggle(_ panel: ReaderPanel) {
         guard let reader else { return }

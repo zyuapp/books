@@ -40,6 +40,11 @@ protocol ReaderEngine: AnyObject {
     /// Plain text of the section around the current position.
     func currentSectionText() async -> String
     func currentSnippet() async -> String
+    /// Plain text of what is on screen.
+    func currentPageText() async -> String
+    /// Zooms fixed pages in (`step > 0`) or out; 0 fits them to the window.
+    func zoom(by step: Int)
+    func scrollContent(by fraction: CGFloat)
     /// Finds `quote` on the current chapter or page so it can be highlighted.
     func locate(_ quote: String) async -> HighlightTarget?
     /// Waits until the current chapter or page has finished loading.
@@ -54,6 +59,8 @@ extension ReaderEngine {
     func fragmentOffsets(_ ids: [String]) async -> [String: Int] { [:] }
     func locate(_ quote: String) async -> HighlightTarget? { nil }
     func waitUntilContentReady() async {}
+    func zoom(by step: Int) {}
+    func scrollContent(by fraction: CGFloat) {}
 }
 
 /// Where a quoted passage sits, in the form a `Highlight` stores.
@@ -82,6 +89,7 @@ final class ReaderModel {
     var panel: ReaderPanel?
     var showClaude = false
     var claudeShowsHistory = false
+    var claudeExpanded = false
     var showSettings = false
     /// Controls auto-hide only in full screen; in a window they stay put.
     var chromeVisible = true
@@ -107,6 +115,8 @@ final class ReaderModel {
     var showBackPill = false
 
     @ObservationIgnored weak var engine: ReaderEngine?
+    /// PDF zoom in percent, nil while pages fit the window.
+    var zoomPercent: Int?
     /// Window-space frames (top-left origin) of floating controls; reader NSViews ignore clicks there.
     @ObservationIgnored var overlayRects: [CGRect] = []
     @ObservationIgnored private var pillTask: Task<Void, Never>?
@@ -212,6 +222,8 @@ final class ReaderModel {
 
     func nextPage() { userMoved = true; selection = nil; footnote = nil; engine?.next() }
     func previousPage() { userMoved = true; selection = nil; footnote = nil; engine?.previous() }
+    /// Moves a zoomed-in page by `fraction` of the visible height (negative is up); never turns the page.
+    func scrollContent(by fraction: CGFloat) { engine?.scrollContent(by: fraction) }
 
     /// A deliberate jump (TOC, link, search, scrubber…). Recorded so it can be undone.
     func jump(to locator: Locator, fragment: String? = nil) {
@@ -533,6 +545,7 @@ final class ReaderModel {
     func context(for scope: ClaudeScope) async -> String {
         switch scope {
         case .passage: return ""
+        case .page: return await engine?.currentPageText() ?? ""
         case .chapter: return await engine?.currentSectionText() ?? ""
         case .book: return await fullText()
         }
@@ -658,16 +671,16 @@ enum ReaderKeys {
         let rtl = model.pagesRightToLeft
         let forward = { model.nextPage() }
         let back = { model.previousPage() }
+        let paged = model.isPaginatedLayout
 
         switch (Int(event.keyCode), flags) {
         case (123, []): rtl ? forward() : back()                 // ←
         case (124, []): rtl ? back() : forward()                 // →
-        case (125, []) where model.isPaginatedLayout: forward()  // ↓
-        case (126, []) where model.isPaginatedLayout: back()     // ↑
-        case (121, []): forward()                                // page down
-        case (116, []): back()                                   // page up
-        case (49, []): forward()                                 // space
-        case (49, .shift): back()
+        // In paged layouts only ← and → turn pages; the rest move around a zoomed-in page.
+        case (125, []) where paged: model.scrollContent(by: 0.12)    // ↓
+        case (126, []) where paged: model.scrollContent(by: -0.12)   // ↑
+        case (121, []), (49, []): paged ? model.scrollContent(by: 0.9) : forward()     // page down, space
+        case (116, []), (49, .shift): paged ? model.scrollContent(by: -0.9) : back()   // page up, ⇧space
         case (115, []): model.goToStart()                        // home
         case (119, []): model.goToEnd()                          // end
         case (123, .option): model.goToChapter(offset: rtl ? 1 : -1)

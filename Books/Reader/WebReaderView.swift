@@ -288,6 +288,10 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         (try? await js("Reader.chapterText()") as? String) ?? ""
     }
 
+    func currentPageText() async -> String {
+        (try? await js("Reader.visibleText()") as? String) ?? ""
+    }
+
     func currentSnippet() async -> String {
         let offset = lastTextOffset ?? 0
         return (try? await js("Reader.snippetAt(\(offset))") as? String) ?? ""
@@ -487,13 +491,10 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// Trackpad and wheel page turning, plus reader items in the context menu.
+/// Swallows wheel and trackpad scrolling in paged layouts (only the arrow keys turn pages), plus reader items in the context menu.
 final class ReaderWebView: WKWebView {
     weak var engine: WebEngine?
     var isPaginated = true
-    private var accumulated = CGSize.zero
-    private var gestureFired = false
-    private var lastWheelTurn = Date.distantPast
 
     private var model: ReaderModel? { MainActor.assumeIsolated { engine.flatMap { $0.modelRef } } }
 
@@ -510,42 +511,19 @@ final class ReaderWebView: WKWebView {
         super.viewDidMoveToWindow()
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
         guard window != nil else { return }
-        // WebKit consumes key and wheel events internally, so intercept them before dispatch.
         // WebKit consumes wheel events internally, so intercept them before dispatch.
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
             guard let self, event.window === self.window, self.isPaginated else { return event }
             let p = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(p), !self.isUnderOverlay(self.superview?.convert(event.locationInWindow, from: nil) ?? p,
                                                                 rects: self.model?.overlayRects ?? []) else { return event }
-            return self.handleWheel(event) ? nil : event
+            return nil
         }
     }
 
     override func removeFromSuperview() {
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
         super.removeFromSuperview()
-    }
-
-    private func handleWheel(_ event: NSEvent) -> Bool {
-        guard let model else { return false }
-        if !event.momentumPhase.isEmpty { return true }
-        if event.phase.isEmpty {
-            guard Date().timeIntervalSince(lastWheelTurn) > 0.28 else { return true }
-            let d = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) ? event.scrollingDeltaY : event.scrollingDeltaX
-            if d < 0 { model.nextPage() } else if d > 0 { model.previousPage() }
-            lastWheelTurn = Date()
-            return true
-        }
-        if event.phase.contains(.began) { accumulated = .zero; gestureFired = false }
-        accumulated.width += event.scrollingDeltaX
-        accumulated.height += event.scrollingDeltaY
-        guard !gestureFired else { return true }
-        let rtl = model.publication?.rightToLeft == true
-        if accumulated.width < -45 { gestureFired = true; rtl ? model.previousPage() : model.nextPage() }
-        else if accumulated.width > 45 { gestureFired = true; rtl ? model.nextPage() : model.previousPage() }
-        else if accumulated.height < -70 { gestureFired = true; model.nextPage() }
-        else if accumulated.height > 70 { gestureFired = true; model.previousPage() }
-        return true
     }
 
     override func updateTrackingAreas() {

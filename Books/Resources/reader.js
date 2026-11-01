@@ -496,6 +496,29 @@
     find,
     clearSelection() { window.getSelection().removeAllRanges(); },
     chapterText() { return document.body.innerText || ''; },
+    visibleText() {
+      const onScreen = (r) => r.right > 0 && r.left < W() && r.bottom > 0 && r.top < H() && r.width > 0;
+      const blockOf = (n) => n.parentElement && n.parentElement.closest('p,div,li,h1,h2,h3,h4,h5,h6,blockquote,pre,td,th,dt,dd,figcaption,section,body');
+      const range = document.createRange();
+      let out = '', block = null;
+      for (const n of textNodes()) {
+        range.selectNodeContents(n);
+        const rects = Array.from(range.getClientRects());
+        if (!rects.some(onScreen)) continue;
+        const b = blockOf(n);
+        if (block && b !== block) out += '\n\n';
+        block = b;
+        if (rects.every(onScreen)) { out += n.data; continue; }
+        const re = /\S+\s*/g;
+        let m;
+        while ((m = re.exec(n.data))) {
+          range.setStart(n, m.index);
+          range.setEnd(n, m.index + m[0].length);
+          if (Array.from(range.getClientRects()).some(onScreen)) out += m[0];
+        }
+      }
+      return out.replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+    },
     textAround(offset, radius) { const t = document.body.textContent || ''; return t.substr(Math.max(0, offset - radius), radius * 2); },
     snippetAt(offset) { return snippet(offset); },
     selectionRect() { const s = window.getSelection(); return s.rangeCount ? rectJSON(s.getRangeAt(0).getBoundingClientRect()) : null; },

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03DEA1AF1E6B1F51B4093383 /* ReaderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E68685FF2DDAB71D94648C /* ReaderSettings.swift */; };
+		061633920184847F985700A1 /* mermaid-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9222F7EDA769E8DABE0F6012 /* mermaid-LICENSE.txt */; };
 		06DC5604A41C0BEA2F6FAC06 /* MOBIHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74935421014EAFDC6C97BD00 /* MOBIHTML.swift */; };
 		1FBD5B260F3C3237F6C04A7E /* MOBI6.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5575428F6DB8E395B2B7284B /* MOBI6.swift */; };
 		2766273F7B297C94E88BB05E /* BookLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA64859E0CE3FE309F36F34 /* BookLoader.swift */; };
@@ -20,16 +21,19 @@
 		44036F261703AC2A252C6091 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC49278F81A7D59CCB0548FC /* SettingsView.swift */; };
 		48E074F38C524732CAE9E96C /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0742051275F48FE839E9A4 /* ReaderModel.swift */; };
 		64EBE08B98EF64313A5B3384 /* MOBIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 413E45A9BC83AC2997F42F74 /* MOBIParser.swift */; };
+		680EAC6CFE870FF67935ABBA /* mermaid.html in Resources */ = {isa = PBXBuildFile; fileRef = 403925ABAA45D6CC6C810F0D /* mermaid.html */; };
 		6E622A6BF834BA9E24A0A69E /* BooksApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 733C4FD3DECDE21F3DF6799B /* BooksApp.swift */; };
 		79B2379F6EB82BF0534A26B6 /* Archive.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C3D2E4DBF78D38B9F0426C /* Archive.swift */; };
 		7C267361B7D11DF913CAAE8C /* FB2Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1286E0B3181EE25BD1B43DA9 /* FB2Parser.swift */; };
 		7DFAFCB0F3181D0B1856DD1E /* ReadingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7801CB4E43A1CB4795E852D7 /* ReadingState.swift */; };
 		86FFB2E28FDE7444AB8A9D46 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489DDBB27D2FA88E274ABC37 /* LibraryView.swift */; };
+		95A83E6C0D9CEB709B2E759C /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 7DEEBB0A8603E766CE5F8C67 /* mermaid.min.js */; };
 		997F2446BE3B91AEBC80E0AA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5A3165B1FBEB5B04811E3A8B /* Assets.xcassets */; };
 		9B6E08B0F55EFB6B6B89C129 /* Updater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD4184B054BC3E42D40BDE8 /* Updater.swift */; };
 		9E6497D2EACBC3EE58FFEAFF /* MOBIContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 654E95956EFFDBF8127C5851 /* MOBIContainer.swift */; };
 		A310A76EC746A6D69200E85B /* Publication.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF8C1886BFC6D15FE32E73E /* Publication.swift */; };
 		A4135EB7DD029E648B30D6C3 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F254818538A0A63BADFB1A9 /* ClaudeService.swift */; };
+		A689C75F9344F93B3084066E /* MermaidDiagram.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3328CC8C4B6ECD8C6B7DDDA3 /* MermaidDiagram.swift */; };
 		A79CF3C9836B44796A82FBAE /* LocalToolServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38343B1D5E81CA10D80D031E /* LocalToolServer.swift */; };
 		B8DEDC48B88FD05582BA6A4C /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6621F7FB8BE0E836B7C8F1D /* ReaderView.swift */; };
 		C1E3F5E546DAFA852C2F0C0F /* AgentToolbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464B7393CD2E6522DAB92DAA /* AgentToolbox.swift */; };
@@ -52,11 +56,13 @@
 		14FE7AE3D7385B2E3B95BD09 /* PageCurl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageCurl.swift; sourceTree = "<group>"; };
 		22A6CEC0858C27EDF75FFF61 /* ClaudePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePanel.swift; sourceTree = "<group>"; };
 		329288E90B03CB4AB8D10430 /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
+		3328CC8C4B6ECD8C6B7DDDA3 /* MermaidDiagram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MermaidDiagram.swift; sourceTree = "<group>"; };
 		34C52BFF906B2DB2A6B21680 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
 		38343B1D5E81CA10D80D031E /* LocalToolServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalToolServer.swift; sourceTree = "<group>"; };
 		3D0EAAC3B66EABB6FC5A6346 /* WebReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebReaderView.swift; sourceTree = "<group>"; };
 		3F254818538A0A63BADFB1A9 /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
 		3F39DB5DDC6568BA2F81DDEC /* MOBIIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIIndex.swift; sourceTree = "<group>"; };
+		403925ABAA45D6CC6C810F0D /* mermaid.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = mermaid.html; sourceTree = "<group>"; };
 		413E45A9BC83AC2997F42F74 /* MOBIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIParser.swift; sourceTree = "<group>"; };
 		456EB5A5D503E07CE26F6CEA /* TextParsers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextParsers.swift; sourceTree = "<group>"; };
 		464B7393CD2E6522DAB92DAA /* AgentToolbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolbox.swift; sourceTree = "<group>"; };
@@ -74,8 +80,10 @@
 		733C4FD3DECDE21F3DF6799B /* BooksApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksApp.swift; sourceTree = "<group>"; };
 		74935421014EAFDC6C97BD00 /* MOBIHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIHTML.swift; sourceTree = "<group>"; };
 		7801CB4E43A1CB4795E852D7 /* ReadingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingState.swift; sourceTree = "<group>"; };
+		7DEEBB0A8603E766CE5F8C67 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mermaid.min.js; sourceTree = "<group>"; };
 		7ECBEFF2CB9CB9DFD1AC7626 /* ReleaseUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseUpdate.swift; sourceTree = "<group>"; };
 		80D8F7DCDD9C57F5ADC89C5B /* PDFReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderView.swift; sourceTree = "<group>"; };
+		9222F7EDA769E8DABE0F6012 /* mermaid-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "mermaid-LICENSE.txt"; sourceTree = "<group>"; };
 		A6621F7FB8BE0E836B7C8F1D /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		ABA64859E0CE3FE309F36F34 /* BookLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLoader.swift; sourceTree = "<group>"; };
 		AF0742051275F48FE839E9A4 /* ReaderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderModel.swift; sourceTree = "<group>"; };
@@ -93,6 +101,9 @@
 			isa = PBXGroup;
 			children = (
 				5A3165B1FBEB5B04811E3A8B /* Assets.xcassets */,
+				9222F7EDA769E8DABE0F6012 /* mermaid-LICENSE.txt */,
+				403925ABAA45D6CC6C810F0D /* mermaid.html */,
+				7DEEBB0A8603E766CE5F8C67 /* mermaid.min.js */,
 				B89718B2711AD2A88F12FEF6 /* reader.js */,
 			);
 			path = Resources;
@@ -167,6 +178,7 @@
 			children = (
 				22A6CEC0858C27EDF75FFF61 /* ClaudePanel.swift */,
 				3F254818538A0A63BADFB1A9 /* ClaudeService.swift */,
+				3328CC8C4B6ECD8C6B7DDDA3 /* MermaidDiagram.swift */,
 			);
 			path = Claude;
 			sourceTree = "<group>";
@@ -291,6 +303,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				997F2446BE3B91AEBC80E0AA /* Assets.xcassets in Resources */,
+				061633920184847F985700A1 /* mermaid-LICENSE.txt in Resources */,
+				680EAC6CFE870FF67935ABBA /* mermaid.html in Resources */,
+				95A83E6C0D9CEB709B2E759C /* mermaid.min.js in Resources */,
 				42036502C9C7697A6F3EBB7E /* reader.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -323,6 +338,7 @@
 				D0804409E68767938AC72AD0 /* MOBIIndex.swift in Sources */,
 				3BC70C09F2683D30520114D5 /* MOBIKF8.swift in Sources */,
 				64EBE08B98EF64313A5B3384 /* MOBIParser.swift in Sources */,
+				A689C75F9344F93B3084066E /* MermaidDiagram.swift in Sources */,
 				C65B655B46F9740620C06AD3 /* PDFReaderView.swift in Sources */,
 				EF4F5068B880E0CFB2AFD44E /* PageCurl.swift in Sources */,
 				A310A76EC746A6D69200E85B /* Publication.swift in Sources */,

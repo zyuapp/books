@@ -9,7 +9,7 @@ final class ClaudeChat {
     var streamingText = ""
     var isStreaming = false
     var error: String?
-    var scope: ClaudeScope = .chapter
+    var scope = ClaudeChat.defaultScope
     /// What a running tool is doing, e.g. "Reading your highlights".
     var toolProgress: String?
     /// Changes Claude made this session, kept so they can be undone. `messageID` is nil while the answer streams.
@@ -23,6 +23,17 @@ final class ClaudeChat {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private weak var reader: ReaderModel?
 
+    /// The scope new conversations start with: the last one the reader picked.
+    static var defaultScope: ClaudeScope {
+        get { ClaudeScope(rawValue: UserDefaults.standard.string(forKey: "claudeScope") ?? "") ?? .page }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "claudeScope") }
+    }
+
+    func choose(_ s: ClaudeScope) {
+        scope = s
+        if s != .passage { Self.defaultScope = s }
+    }
+
     init(reader: ReaderModel) {
         self.reader = reader
         model = ClaudeModel(rawValue: UserDefaults.standard.string(forKey: "claudeModel") ?? "") ?? .sonnet
@@ -31,9 +42,9 @@ final class ClaudeChat {
     func begin(with seed: ClaudeRequestSeed) {
         cancel()
         thread = ChatThread(title: seed.passage.map { String($0.prefix(60)) } ?? (reader?.chapterTitle ?? "Question"),
-                            passage: seed.passage, locator: seed.locator, scope: seed.passage == nil ? .chapter : scope)
-        scope = thread?.scope ?? .chapter
-        if seed.passage != nil && scope == .passage { scope = .chapter }
+                            passage: seed.passage, locator: seed.locator)
+        scope = Self.defaultScope
+        thread?.contextScope = scope
         error = nil
         if let action = seed.action { send(action.prompt(hasPassage: seed.passage != nil)) }
     }
@@ -43,12 +54,13 @@ final class ClaudeChat {
         thread = nil
         error = nil
         input = ""
+        scope = Self.defaultScope
     }
 
     func open(_ t: ChatThread) {
         cancel()
         thread = t
-        scope = t.scope
+        scope = t.contextScope
         error = nil
     }
 
@@ -66,9 +78,9 @@ final class ClaudeChat {
         input = ""
         error = nil
         if thread == nil {
-            thread = ChatThread(title: String(question.prefix(60)), passage: nil, locator: reader.location, scope: scope)
+            thread = ChatThread(title: String(question.prefix(60)), passage: nil, locator: reader.location)
         }
-        thread!.scope = scope
+        thread!.contextScope = scope
         let history = thread!.messages
         thread!.messages.append(ChatMessage(role: .user, text: question))
         thread!.updated = Date()
@@ -162,6 +174,9 @@ final class ClaudeChat {
         “\(reader.title)”\(author.map { " by \($0)" } ?? ""). They are currently at: \(where_).
         Answer from the provided book text when it's relevant, and from your own knowledge otherwise. \
         Be concise and specific: short paragraphs, quotes from the text when helpful, light Markdown (bold, italics, short lists). \
+        The chat draws ```mermaid code blocks as diagrams: when a diagram, flowchart, timeline or map of ideas would help, or the \
+        reader asks for one, include it as a mermaid block rather than describing it. The panel is narrow, so lay diagrams out \
+        left to right (`flowchart LR`), keep labels short and use at most about 10 nodes. \
         Never reveal plot developments beyond the reader's current position unless they explicitly ask for spoilers.
         \(AgentToolbox.guidance)
         """
@@ -198,6 +213,7 @@ struct ClaudePanel: View {
     @FocusState private var inputFocused: Bool
 
     private static let accent = Color(hex: "#C96442")
+    private static let readableWidth: CGFloat = 760
 
     var body: some View {
         ZStack {
@@ -215,7 +231,7 @@ struct ClaudePanel: View {
             }
         }
         .animation(.smooth(duration: 0.3), value: reader.claudeShowsHistory)
-        .frame(width: 400)
+        .frame(maxWidth: reader.claudeExpanded ? .infinity : 400)
         .glassEffect(.regular.tint(theme.backgroundColor.opacity(0.6)), in: .rect(cornerRadius: 26))
         .clipShape(.rect(cornerRadius: 26))
         .readerOverlay()
@@ -245,6 +261,10 @@ struct ClaudePanel: View {
             PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                 chat.newThread()
                 inputFocused = true
+            }
+            PanelIconButton(symbol: reader.claudeExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                            label: reader.claudeExpanded ? "Make Smaller" : "Expand") {
+                withAnimation(.spring(duration: 0.4)) { reader.claudeExpanded.toggle() }
             }
             PanelIconButton(symbol: "xmark", label: "Close") {
                 withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
@@ -301,6 +321,8 @@ struct ClaudePanel: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(16)
+                .frame(maxWidth: Self.readableWidth)
+                .frame(maxWidth: .infinity)
             }
             .scrollEdgeEffectStyle(.soft, for: .all)
             .onChange(of: chat.streamingText) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
@@ -319,7 +341,7 @@ struct ClaudePanel: View {
                     .font(.system(.title3, design: .serif).weight(.semibold))
                     .lineLimit(2)
                 Text(hasPassage ? "Pick a starting point or type your own question."
-                                : "Claude can see the \(chat.scope == .book ? "whole book" : "chapter you’re reading").")
+                                : "Claude can see \(chat.scope == .book ? "the whole book" : chat.scope == .page ? "the page you’re on" : "the chapter you’re reading").")
                     .font(.callout).foregroundStyle(.secondary)
             }
             VStack(spacing: 6) {
@@ -362,7 +384,7 @@ struct ClaudePanel: View {
                 .accessibilityLabel("Question for Claude")
             HStack(spacing: 6) {
                 Menu {
-                    Picker("Context", selection: $chat.scope) {
+                    Picker("Context", selection: Binding(get: { chat.scope }, set: { chat.choose($0) })) {
                         ForEach(ClaudeScope.allCases.filter { $0 != .passage || chat.thread?.passage != nil }, id: \.self) { s in
                             Label(s == .passage ? "Selection Only" : s.label, systemImage: s.symbol).tag(s)
                         }
@@ -424,6 +446,7 @@ struct ClaudePanel: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.55) : .primary.opacity(0.1), lineWidth: 1))
         .animation(.easeOut(duration: 0.15), value: inputFocused)
         .padding(12)
+        .frame(maxWidth: Self.readableWidth)
     }
 
     // MARK: History
@@ -470,6 +493,8 @@ struct ClaudePanel: View {
                         }
                     }
                     .padding(10)
+                    .frame(maxWidth: Self.readableWidth)
+                    .frame(maxWidth: .infinity)
                 }
                 .scrollEdgeEffectStyle(.soft, for: .all)
                 Text("\(threads.count) conversation\(threads.count == 1 ? "" : "s") · synced with iCloud")
@@ -702,7 +727,7 @@ private struct MessageView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                MarkdownText(text: message.text + (streaming ? " ▍" : ""))
+                MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
                 if !streaming {
                     HStack(spacing: 2) {
                         if let onCopy {
@@ -724,6 +749,7 @@ private struct MessageView: View {
 /// Renders Claude's Markdown: paragraphs, headings, lists, quotes and code.
 struct MarkdownText: View {
     let text: String
+    var rendersDiagrams = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -733,7 +759,9 @@ struct MarkdownText: View {
                     Text(Markdown.attributed(t)).font(level <= 2 ? .headline : .subheadline.weight(.semibold))
                 case .paragraph(let t):
                     Text(Markdown.attributed(t)).font(.system(size: 14)).lineSpacing(3)
-                case .code(let c):
+                case .code(let c, "mermaid") where rendersDiagrams:
+                    MermaidDiagram(source: c)
+                case .code(let c, _):
                     Text(c).font(.system(.callout, design: .monospaced))
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))

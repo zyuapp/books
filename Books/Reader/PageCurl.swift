@@ -55,7 +55,7 @@ final class PageCurl {
 
     /// Curls `from` away to reveal `to` (forward), or curls `to` back over `from` (backward).
     func animate(from a: CGImage, to b: CGImage, forward: Bool, rightToLeft: Bool = false, paper: NSColor, token: Int,
-                 duration: Double = 0.55) async {
+                 duration: Double = 0.2) async {
         guard let overlay else { return }
         let paperImage = CIImage(color: CIColor(color: paper) ?? .white)
         // Snapshots of a transparent web view need the page colour behind them.
@@ -74,7 +74,7 @@ final class PageCurl {
         let start = CACurrentMediaTime()
         while isCurrent(token) {
             let t = min(1, (CACurrentMediaTime() - start) / duration)
-            let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+            let eased = 1 - pow(1 - t, 3)
             let time = forward ? eased : 1 - eased
             let input = forward ? imgA : imgB, target = forward ? imgB : imgA
             guard let surface = pool.next() else { return }

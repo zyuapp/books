@@ -90,6 +90,15 @@ struct ReaderView: View {
     private var overlays: some View {
         GeometryReader { geo in
             ZStack {
+                if model.zoomPercent != nil {
+                    VStack(spacing: 0) {
+                        if model.chromeVisible || model.panel != nil || model.showClaude { scrim(fadingTo: .bottom) }
+                        Spacer(minLength: 0)
+                        if model.chromeVisible { scrim(fadingTo: .top) }
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                }
                 VStack(spacing: 0) {
                     ZStack {
                         if model.chromeVisible || model.panel != nil || model.showClaude {
@@ -118,9 +127,10 @@ struct ReaderView: View {
                             .padding(.bottom, 12)
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                    Spacer(minLength: 0)
+                    if !(model.showClaude && model.claudeExpanded) { Spacer(minLength: 0) }
                     if model.showClaude {
                         ClaudePanel(reader: model, chat: chat, theme: theme)
+                            .padding(.leading, model.claudeExpanded ? 12 : 0)
                             .padding(.trailing, 12)
                             .padding(.top, 56)
                             .padding(.bottom, 12)
@@ -147,8 +157,20 @@ struct ReaderView: View {
             .animation(.spring(duration: 0.3), value: model.footnote)
             .animation(.spring(duration: 0.4), value: model.panel)
             .animation(.spring(duration: 0.4), value: model.showClaude)
+            .animation(.spring(duration: 0.4), value: model.claudeExpanded)
+            .animation(.easeInOut(duration: 0.25), value: model.zoomPercent == nil)
             .animation(.easeInOut(duration: 0.35), value: model.chromeVisible)
         }
+    }
+
+    /// Keeps zoomed-in page text from showing through the glass bars.
+    private func scrim(fadingTo edge: UnitPoint) -> some View {
+        LinearGradient(stops: [.init(color: theme.backgroundColor, location: 0),
+                               .init(color: theme.backgroundColor, location: 0.55),
+                               .init(color: theme.backgroundColor.opacity(0), location: 1)],
+                       startPoint: edge == .bottom ? .top : .bottom, endPoint: edge)
+            .frame(height: 130)
+            .transition(.opacity)
     }
 
     private func selectionBarPosition(_ rect: CGRect, in size: CGSize) -> CGPoint {
@@ -217,7 +239,7 @@ private struct TopBar: View {
                     .help("Reading Settings")
                     .accessibilityLabel("Reading Settings")
                     .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
-                        ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable)
+                        ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable, reader: model)
                     }
 
                     Button { model.toggleBookmark() } label: {
@@ -269,11 +291,19 @@ private struct BottomBar: View {
     var body: some View {
         let progress = scrubValue ?? model.location.totalProgress
         HStack(spacing: 14) {
-            Text(leftLabel)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(minWidth: 110, alignment: .leading)
+            HStack(spacing: 4) {
+                if model.isPaginatedLayout {
+                    pageButton(symbol: "chevron.left", label: "Previous Page (←)", forward: model.pagesRightToLeft)
+                }
+                Text(leftLabel)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(minWidth: 110, alignment: model.isPaginatedLayout ? .center : .leading)
+                if model.isPaginatedLayout {
+                    pageButton(symbol: "chevron.right", label: "Next Page (→)", forward: !model.pagesRightToLeft)
+                }
+            }
             Slider(value: Binding(
                 get: { progress },
                 set: { v in
@@ -297,6 +327,19 @@ private struct BottomBar: View {
         .glassEffect(.regular, in: .capsule)
         .readerOverlay()
         .padding(.bottom, 14)
+    }
+
+    private func pageButton(symbol: String, label: String, forward: Bool) -> some View {
+        Button { forward ? model.nextPage() : model.previousPage() } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help(label)
+        .accessibilityLabel(label)
     }
 
     private var leftLabel: String {

@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  #diagram { display: flex; justify-content: center; }
+  #diagram svg { max-width: 100%; height: auto; }
+</style>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<div id="diagram"></div>
+<script>
+  const post = (msg) => window.webkit.messageHandlers.diagram.postMessage(msg);
+  const container = document.getElementById('diagram');
+  new ResizeObserver(() => post({ height: Math.ceil(container.getBoundingClientRect().height) })).observe(container);
+  let count = 0;
+
+  async function render(src, dark) {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: dark ? 'dark' : 'neutral',
+      fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+    });
+    try {
+      await mermaid.parse(src);
+      const { svg } = await mermaid.render('diagram' + (++count), src);
+      container.innerHTML = svg;
+    } catch (e) {
+      post({ error: String(e && e.message || e) });
+    }
+  }
+</script>
+</body>
+</html>

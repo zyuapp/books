@@ -205,7 +205,7 @@ enum Markdown {
     enum Block {
         case heading(Int, String)
         case paragraph(String)
-        case code(String)
+        case code(String, language: String?)
         case quote([String])
         case list(ordered: Bool, items: [String])
         case rule
@@ -230,7 +230,8 @@ enum Markdown {
                 while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(String(trimmed.prefix(3))) {
                     code.append(lines[i]); i += 1
                 }
-                result.append(.code(code.joined(separator: "\n")))
+                let language = trimmed.dropFirst(3).split(separator: " ").first.map { $0.lowercased() }
+                result.append(.code(code.joined(separator: "\n"), language: language))
             } else if trimmed.isEmpty {
                 flushPara()
             } else if let m = trimmed.firstMatch(of: /^(#{1,6})\s+(.*?)\s*#*$/) {
@@ -280,7 +281,7 @@ enum Markdown {
         switch block {
         case .heading(let l, let t): return "<h\(l) id=\"\(id)\">\(inline(t, image: image))</h\(l)>\n"
         case .paragraph(let t): return "<p>\(inline(t, image: image))</p>\n"
-        case .code(let c): return "<pre><code>\(c.xmlEscaped)</code></pre>\n"
+        case .code(let c, _): return "<pre><code>\(c.xmlEscaped)</code></pre>\n"
         case .quote(let lines):
             let inner = blocks(lines.joined(separator: "\n")).map { html($0, id: "", image: image) }.joined()
             return "<blockquote>\(inner)</blockquote>\n"
