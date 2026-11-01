@@ -528,9 +528,6 @@ struct ClaudePanel: View {
                     .frame(maxWidth: .infinity)
                 }
                 .scrollEdgeEffectStyle(.soft, for: .all)
-                Text("\(threads.count) conversation\(threads.count == 1 ? "" : "s") · synced with iCloud")
-                    .font(.subheadline).foregroundStyle(.tertiary)
-                    .padding(.bottom, 12)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -628,8 +625,6 @@ private struct HistoryRow: View {
                 }
                 HStack(spacing: 4) {
                     Text(thread.updated, format: .relative(presentation: .named))
-                    Text("·")
-                    Text("\(thread.messages.count) message\(thread.messages.count == 1 ? "" : "s")")
                     if isCurrent { Text("· Open").foregroundStyle(Color(hex: "#C96442")) }
                 }
                 .font(.subheadline).foregroundStyle(.tertiary)

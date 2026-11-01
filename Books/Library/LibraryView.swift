@@ -126,7 +126,7 @@ struct LibraryView: View {
             }
             Section("Formats") {
                 ForEach([LibrarySection.books, .pdfs, .comics, .documents], id: \.self) { s in
-                    if count(s) > 0 { Label(s.title, systemImage: s.symbol).badge(count(s)).tag(s) }
+                    if count(s) > 0 { Label(s.title, systemImage: s.symbol).tag(s) }
                 }
             }
             Section("Collections") {
@@ -422,10 +422,6 @@ struct BookCard: View {
         } else if state.status == .finished {
             Image(systemName: "checkmark").font(.caption.weight(.bold))
                 .padding(6).glassEffect(.regular.tint(.green.opacity(0.5)), in: .circle)
-        } else if state.status == .unread {
-            Text("NEW").font(.system(size: 9, weight: .heavy)).tracking(0.5)
-                .padding(.horizontal, 7).padding(.vertical, 4)
-                .glassEffect(.regular.tint(Color(hex: "#C96442").opacity(0.6)), in: .capsule)
         }
     }
 }
