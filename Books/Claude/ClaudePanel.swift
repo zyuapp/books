@@ -199,6 +199,23 @@ final class ClaudeChat {
     }
 }
 
+/// Text scale for the Claude chat, adjusted with ⌘= / ⌘- while the panel is open.
+enum ChatTextSize {
+    static let key = "claudeTextScale"
+    static let range: ClosedRange<Double> = 0.8...2.0
+
+    /// `0` resets to the default size; otherwise moves one step larger or smaller.
+    static func step(_ direction: Int) {
+        let current = UserDefaults.standard.object(forKey: key) as? Double ?? 1
+        let next = direction == 0 ? 1 : (current + Double(direction) * 0.1).clamped(to: range)
+        UserDefaults.standard.set((next * 10).rounded() / 10, forKey: key)
+    }
+}
+
+private extension Comparable {
+    func clamped(to r: ClosedRange<Self>) -> Self { min(max(self, r.lowerBound), r.upperBound) }
+}
+
 struct ChatActivity: Identifiable {
     let id = UUID()
     var activity: AgentActivity
@@ -211,6 +228,7 @@ struct ClaudePanel: View {
     @Bindable var chat: ClaudeChat
     let theme: ReaderTheme
     @FocusState private var inputFocused: Bool
+    @AppStorage(ChatTextSize.key) private var textScale = 1.0
 
     private static let accent = Color(hex: "#C96442")
     private static let readableWidth: CGFloat = 760
@@ -237,12 +255,23 @@ struct ClaudePanel: View {
         .readerOverlay()
         .shadow(color: .black.opacity(0.14), radius: 30, y: 10)
         .onChange(of: reader.claudeDraft) { _, seed in
-            if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil; inputFocused = true }
+            if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
         }
+        .onChange(of: reader.claudeFocusRequest) { _, _ in
+            reader.claudeShowsHistory = false
+            focusInput()
+        }
+        .onChange(of: inputFocused) { _, f in reader.claudeInputFocused = f }
         .onAppear {
             if let seed = reader.claudeDraft { chat.begin(with: seed); reader.claudeDraft = nil }
-            inputFocused = true
+            focusInput()
         }
+        .onDisappear { reader.claudeInputFocused = false }
+    }
+
+    /// Focus set during the same update as the field's insertion is dropped, so it waits a run-loop turn.
+    private func focusInput() {
+        DispatchQueue.main.async { inputFocused = true }
     }
 
     // MARK: Header
@@ -377,7 +406,7 @@ struct ClaudePanel: View {
             TextField(chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
                       text: $chat.input, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13.5))
+                .font(.system(size: 13.5 * textScale))
                 .lineLimit(1...7)
                 .focused($inputFocused)
                 .onSubmit { chat.send() }
@@ -713,13 +742,14 @@ private struct MessageView: View {
     var onCopy: (() -> Void)?
     var onSaveNote: (() -> Void)?
     @State private var hovering = false
+    @AppStorage(ChatTextSize.key) private var textScale = 1.0
 
     var body: some View {
         if message.role == .user {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.text)
-                    .font(.callout)
+                    .font(.system(size: 13 * textScale))
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
@@ -750,33 +780,34 @@ private struct MessageView: View {
 struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
+    @AppStorage(ChatTextSize.key) private var scale = 1.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let level, let t):
-                    Text(Markdown.attributed(t)).font(level <= 2 ? .headline : .subheadline.weight(.semibold))
+                    Text(Markdown.attributed(t)).font(.system(size: (level <= 2 ? 15 : 14) * scale, weight: level <= 2 ? .bold : .semibold))
                 case .paragraph(let t):
-                    Text(Markdown.attributed(t)).font(.system(size: 14)).lineSpacing(3)
+                    Text(Markdown.attributed(t)).font(.system(size: 14 * scale)).lineSpacing(3 * scale)
                 case .code(let c, "mermaid") where rendersDiagrams:
                     MermaidDiagram(source: c)
                 case .code(let c, _):
-                    Text(c).font(.system(.callout, design: .monospaced))
+                    Text(c).font(.system(size: 12.5 * scale, design: .monospaced))
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
                 case .quote(let lines):
                     HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 1.5).fill(.secondary.opacity(0.5)).frame(width: 3)
                         Text(Markdown.attributed(lines.joined(separator: " ")))
-                            .font(.system(size: 14, design: .serif).italic()).foregroundStyle(.secondary)
+                            .font(.system(size: 14 * scale, design: .serif).italic()).foregroundStyle(.secondary)
                     }
                 case .list(let ordered, let items):
                     VStack(alignment: .leading, spacing: 5) {
                         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ordered ? "\(i + 1)." : "•").foregroundStyle(.secondary).monospacedDigit()
-                                Text(Markdown.attributed(item)).font(.system(size: 14))
+                                Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14 * scale)).foregroundStyle(.secondary).monospacedDigit()
+                                Text(Markdown.attributed(item)).font(.system(size: 14 * scale))
                             }
                         }
                     }

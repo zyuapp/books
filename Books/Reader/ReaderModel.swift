@@ -89,7 +89,12 @@ final class ReaderModel {
     var panel: ReaderPanel?
     var showClaude = false
     var claudeShowsHistory = false
-    var claudeExpanded = false
+    var claudeExpanded = UserDefaults.standard.object(forKey: "claudeExpanded") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(claudeExpanded, forKey: "claudeExpanded") }
+    }
+    /// Bumped to move keyboard focus into Claude's input.
+    var claudeFocusRequest = 0
+    var claudeInputFocused = false
     var showSettings = false
     /// Controls auto-hide only in full screen; in a window they stay put.
     var chromeVisible = true
@@ -543,6 +548,7 @@ final class ReaderModel {
         selection = nil
         engine?.clearSelection()
         withAnimation(.spring(duration: 0.4)) { showClaude = true }
+        claudeFocusRequest += 1
     }
 
     func context(for scope: ClaudeScope) async -> String {
