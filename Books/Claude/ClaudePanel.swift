@@ -288,8 +288,7 @@ struct ClaudePanel: View {
                     .font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations",
-                            badge: reader.state.liveChats.count) { reader.claudeShowsHistory = true }
+            PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
             PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                 chat.newThread()
                 inputFocused = true
@@ -555,7 +554,6 @@ struct ClaudeAvatar: View {
 private struct PanelIconButton: View {
     let symbol: String
     let label: String
-    var badge: Int = 0
     let action: () -> Void
     @State private var hovering = false
 
@@ -565,15 +563,6 @@ private struct PanelIconButton: View {
                 .font(.system(size: 13, weight: .medium))
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(.primary.opacity(hovering ? 0.1 : 0)))
-                .overlay(alignment: .topTrailing) {
-                    if badge > 0 {
-                        Text("\(badge)")
-                            .font(.system(size: 8.5, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 3.5).frame(minWidth: 13, minHeight: 13)
-                            .background(Capsule().fill(Color(hex: "#C96442")))
-                            .offset(x: 3, y: -2)
-                    }
-                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
