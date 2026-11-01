@@ -15,7 +15,7 @@ struct MermaidDiagram: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Label(failed ? "Diagram couldn’t be drawn" : "Diagram", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if !failed {
@@ -34,7 +34,7 @@ struct MermaidDiagram: View {
                 .accessibilityLabel("Copy Mermaid Source")
             }
             .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
+            .font(.callout.weight(.medium))
             .foregroundStyle(.secondary)
 
             if showsSource || failed {

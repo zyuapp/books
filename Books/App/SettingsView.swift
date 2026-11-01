@@ -8,8 +8,7 @@ struct SettingsView: View {
             ReadingSettingsTab().tabItem { Label("Reading", systemImage: "textformat.size") }
             ClaudeSettings().tabItem { Label("Claude", systemImage: "sparkles") }
         }
-        .frame(width: 520)
-        .scenePadding()
+        .frame(width: 500)
     }
 }
 
@@ -20,33 +19,47 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section("Library") {
+            Section {
                 LabeledContent("Location") {
-                    HStack {
-                        Text(library.rootURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                            .font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    HStack(spacing: 8) {
+                        Text(locationLabel)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(library.rootURL.path)
                         Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([library.rootURL]) }
+                            .controlSize(.small)
                     }
                 }
-                Toggle("Copy books opened from Finder into the iCloud library", isOn: $autoCopy)
-                Text("Reading positions, highlights, notes and Claude conversations sync through iCloud Drive for every book, even ones that stay where they are. PDFs and plain documents are read in place.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Copy opened books into the library", isOn: $autoCopy)
+            } header: {
+                Text("Library")
+            } footer: {
+                Text("Positions, highlights, notes and Claude conversations sync through iCloud Drive.")
+                    .formFooterStyle()
             }
-            Section("Default App") {
-                HStack {
-                    Button("Make Books the Default for eBooks") {
-                        Task { status = await AppActions.makeDefaultReader() }
-                    }
-                    Button("Also Open PDFs") {
-                        Task { status = await AppActions.makeDefaultPDFReader() }
+            Section {
+                LabeledContent("Make Books the default for") {
+                    HStack(spacing: 8) {
+                        Button("eBooks") { Task { status = await AppActions.makeDefaultReader() } }
+                        Button("PDFs") { Task { status = await AppActions.makeDefaultPDFReader() } }
                     }
                 }
-                Text("Covers EPUB, MOBI, AZW3, FB2 and comic archives (CBZ, CBR, CB7, CBT). You can also choose Books in Finder › Get Info › Open with › Change All.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let status { Text(status).font(.callout) }
+            } header: {
+                Text("Default App")
+            } footer: {
+                Text(status ?? "eBooks covers EPUB, MOBI, AZW3, FB2 and comic archives.")
+                    .formFooterStyle()
             }
         }
-        .formStyle(.grouped)
+        .settingsTab()
+    }
+
+    private var locationLabel: String {
+        let path = library.rootURL.path
+        if let range = path.range(of: "/com~apple~CloudDocs/") {
+            return "iCloud Drive › " + path[range.upperBound...].replacingOccurrences(of: "/", with: " › ")
+        }
+        return path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 }
 
@@ -60,6 +73,9 @@ private struct ReadingSettingsTab: View {
 private struct ClaudeSettings: View {
     @AppStorage("claudePath") private var path = ""
     @AppStorage("claudeModel") private var model = ClaudeModel.sonnet.rawValue
+    @AppStorage("claudeEffort") private var effort = ClaudeEffort.low.rawValue
+    @AppStorage(ChatFont.key) private var chatFont = ChatFont.charter
+    @AppStorage(ChatTextSize.key) private var chatTextSize = ChatTextSize.standard
     @State private var detected: String?
     @State private var testResult: String?
     @State private var testing = false
@@ -68,25 +84,50 @@ private struct ClaudeSettings: View {
         Form {
             Section {
                 LabeledContent("Claude Code") {
-                    Text(detected ?? "Not found").foregroundStyle(detected == nil ? .red : .secondary)
-                        .font(.callout).lineLimit(1).truncationMode(.middle)
+                    HStack(spacing: 8) {
+                        Text(testResult ?? detected.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Not found")
+                            .foregroundStyle(detected == nil ? .red : .secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Button(testing ? "Testing…" : "Test") { test() }.disabled(testing || detected == nil)
+                    }
                 }
                 TextField("Custom path", text: $path, prompt: Text("Auto-detect"))
-                Picker("Default model", selection: $model) {
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Uses your Claude subscription through Claude Code. Run `claude` in Terminal once to sign in.")
+                    .formFooterStyle()
+            }
+            Section("Defaults") {
+                Picker("Model", selection: $model) {
                     ForEach(ClaudeModel.allCases) { Text($0.name).tag($0.rawValue) }
                 }
-                HStack {
-                    Button(testing ? "Testing…" : "Test Connection") { test() }.disabled(testing)
-                    if let testResult { Text(testResult).font(.callout).foregroundStyle(.secondary).lineLimit(2) }
+                Picker("Effort", selection: $effort) {
+                    ForEach(ClaudeEffort.allCases) { Text($0.name).tag($0.rawValue) }
                 }
+            }
+            Section {
+                Picker("Font", selection: $chatFont) {
+                    ForEach(ChatFont.allCases) { Text($0.name).tag($0) }
+                }
+                Picker("Text size", selection: $chatTextSize) {
+                    ForEach(ChatTextSize.options, id: \.size) { Text($0.name).tag($0.size) }
+                }
+            } header: {
+                Text("Chat")
             } footer: {
-                Text("Books asks Claude through your installed Claude Code CLI, so it uses your Claude subscription. Run `claude` once in Terminal and sign in if you haven’t.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("The quick brown fox jumps over the lazy dog.")
+                    .font(chatFont.font(chatTextSize))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .formStyle(.grouped)
+        .settingsTab()
         .task { detected = await Task.detached { ClaudeService.executable()?.path }.value }
-        .onChange(of: path) { _, _ in Task { detected = await Task.detached { ClaudeService.executable()?.path }.value } }
+        .onChange(of: path) { _, _ in
+            testResult = nil
+            Task { detected = await Task.detached { ClaudeService.executable()?.path }.value }
+        }
     }
 
     private func test() {
@@ -104,5 +145,19 @@ private struct ClaudeSettings: View {
             }
             testing = false
         }
+    }
+}
+
+private extension View {
+    func formFooterStyle() -> some View {
+        font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Grouped form sized to its content, so the window fits each tab.
+    func settingsTab() -> some View {
+        formStyle(.grouped)
+            .scrollDisabled(true)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 20)
     }
 }

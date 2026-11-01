@@ -262,26 +262,22 @@ struct BooksCommands: Commands {
             Divider()
             Button("Reading Settings") { reader?.showSettings.toggle() }.keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(reader == nil)
-            Button(chatOpen ? "Bigger Chat Text" : isPDF ? "Zoom In" : "Bigger Text") {
-                if chatOpen { ChatTextSize.step(1) }
-                else if isPDF { reader?.engine?.zoom(by: 1) } else { ReaderSettings.shared.prefs.fontSize = min(40, ReaderSettings.shared.prefs.fontSize + 1) }
+            Button(isPDF ? "Zoom In" : "Bigger Text") {
+                if isPDF { reader?.engine?.zoom(by: 1) } else { ReaderSettings.shared.prefs.fontSize = min(40, ReaderSettings.shared.prefs.fontSize + 1) }
             }
             .keyboardShortcut("=")
-            Button(chatOpen ? "Smaller Chat Text" : isPDF ? "Zoom Out" : "Smaller Text") {
-                if chatOpen { ChatTextSize.step(-1) }
-                else if isPDF { reader?.engine?.zoom(by: -1) } else { ReaderSettings.shared.prefs.fontSize = max(12, ReaderSettings.shared.prefs.fontSize - 1) }
+            Button(isPDF ? "Zoom Out" : "Smaller Text") {
+                if isPDF { reader?.engine?.zoom(by: -1) } else { ReaderSettings.shared.prefs.fontSize = max(12, ReaderSettings.shared.prefs.fontSize - 1) }
             }
             .keyboardShortcut("-")
-            Button(chatOpen ? "Default Chat Text Size" : isPDF ? "Fit to Window" : "Default Text Size") {
-                if chatOpen { ChatTextSize.step(0) }
-                else if isPDF { reader?.engine?.zoom(by: 0) } else { ReaderSettings.shared.prefs.fontSize = ReaderPreferences().fontSize }
+            Button(isPDF ? "Fit to Window" : "Default Text Size") {
+                if isPDF { reader?.engine?.zoom(by: 0) } else { ReaderSettings.shared.prefs.fontSize = ReaderPreferences().fontSize }
             }
             .keyboardShortcut("0")
         }
     }
 
     private var isPDF: Bool { reader?.publication?.kind == .pdf }
-    private var chatOpen: Bool { reader?.showClaude == true }
 
     private func toggle(_ panel: ReaderPanel) {
         guard let reader else { return }

@@ -77,6 +77,27 @@ struct ChatThread: Syncable, Hashable, Sendable {
     var updated = Date()
     var deleted = false
 
+    /// First words of `text`, cut at a word boundary.
+    static func title(from text: String) -> String {
+        let flat = text.collapsingWhitespace
+        guard flat.count > 60 else { return flat }
+        let cut = flat.prefix(60)
+        let atWord = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+        return atWord.trimmingCharacters(in: .punctuationCharacters) + "…"
+    }
+
+    /// One line of an answer for lists, without code blocks or headings.
+    static func preview(of text: String) -> String {
+        var inCode = false
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line -> String? in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("```") { inCode.toggle(); return nil }
+            if inCode || t.hasPrefix("#") { return nil }
+            return t.hasPrefix("- ") || t.hasPrefix("* ") ? String(t.dropFirst(2)) : t
+        }
+        return lines.joined(separator: " ")
+    }
+
     var contextScope: ClaudeScope {
         get { pageOnly == true ? .page : scope }
         set {

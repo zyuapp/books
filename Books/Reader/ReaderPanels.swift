@@ -47,13 +47,13 @@ private struct ContentsList: View {
                         Button { model.go(to: row.entry) } label: {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(row.entry.title)
-                                    .font(.system(size: row.depth == 0 ? 13.5 : 12.5, weight: row.entry.id == current ? .semibold : .regular, design: .serif))
+                                    .font(.system(row.depth == 0 ? .body : .callout, design: .serif).weight(row.entry.id == current ? .semibold : .regular))
                                     .foregroundStyle(row.entry.id == current ? Color.accentColor : .primary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
                                 Spacer(minLength: 8)
                                 if model.publication?.kind != .reflowable {
-                                    Text("\(row.entry.spineIndex + 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    Text("\(row.entry.spineIndex + 1)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                                 }
                             }
                             .padding(.leading, CGFloat(row.depth) * 14)
@@ -90,12 +90,12 @@ private struct BookHeader: View {
             CoverView(bookID: model.book.id, title: model.title, author: model.publication?.author)
                 .frame(width: 46, height: 68)
             VStack(alignment: .leading, spacing: 3) {
-                Text(model.title).font(.system(size: 14, weight: .semibold, design: .serif)).lineLimit(2)
+                Text(model.title).font(.system(.title3, design: .serif).weight(.semibold)).lineLimit(2)
                 if let author = model.publication?.author ?? model.state.author {
-                    Text(author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Text("\(Int((model.location.totalProgress * 100).rounded()))% read")
-                    .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -142,9 +142,9 @@ private struct NotesList: View {
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "bookmark.fill").foregroundStyle(Color(hex: "#E25B45"))
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(b.snippet).font(.system(size: 13, design: .serif)).lineLimit(3).multilineTextAlignment(.leading)
+                                        Text(b.snippet).font(.system(.body, design: .serif)).lineLimit(3).multilineTextAlignment(.leading)
                                         Text("\(ReaderModel.describe(b.locator, publication: model.publication)) · \(b.created.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.caption2).foregroundStyle(.secondary)
+                                            .font(.subheadline).foregroundStyle(.secondary)
                                     }
                                     Spacer(minLength: 0)
                                 }
@@ -189,14 +189,14 @@ private struct HighlightRow: View {
                 RoundedRectangle(cornerRadius: 2).fill(highlight.color.color.gradient).frame(width: 4)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(highlight.text)
-                        .font(.system(size: 13, design: .serif))
+                        .font(.system(.body, design: .serif))
                         .lineLimit(5)
                         .multilineTextAlignment(.leading)
                     if let note = highlight.note, !note.isEmpty {
-                        Text(note).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(4)
+                        Text(note).font(.callout).foregroundStyle(.secondary).lineLimit(4)
                     }
                     Text(ReaderModel.describe(highlight.locator, publication: model.publication))
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.subheadline).foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 0)
             }
@@ -257,15 +257,15 @@ private struct SearchPanel: View {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         if !model.searchResults.isEmpty {
                             Text("\(model.searchResults.count)\(model.searchResults.count >= 500 ? "+" : "") results")
-                                .font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 4)
+                                .font(.subheadline.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 4)
                         }
                         ForEach(model.searchResults) { r in
                             Button { model.reveal(r) } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     if !r.chapter.isEmpty {
-                                        Text(r.chapter).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(r.chapter).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
                                     }
-                                    Text(r.snippet).font(.system(size: 12.5, design: .serif)).foregroundStyle(.secondary).lineLimit(3)
+                                    Text(r.snippet).font(.system(.body, design: .serif)).foregroundStyle(.secondary).lineLimit(3)
                                         .multilineTextAlignment(.leading)
                                 }
                                 .padding(10)
@@ -282,7 +282,7 @@ private struct SearchPanel: View {
                 .scrollEdgeEffectStyle(.soft, for: .all)
             }
         }
-        .onAppear { focused = true }
+        .onAppear { DispatchQueue.main.async { focused = true } }
     }
 }
 
@@ -310,14 +310,16 @@ struct ReaderSettingsPopover: View {
                 }
                 .buttonStyle(.glass)
 
-                Picker("Font", selection: $s.prefs.fontID) {
-                    ForEach(ReaderFont.all) { f in
-                        Text(f.name).font(f.preview(size: 13)).tag(f.id)
+                row("Font") {
+                    Picker("Font", selection: $s.prefs.fontID) {
+                        ForEach(ReaderFont.all) { f in
+                            Text(f.name).font(f.preview(size: 13)).tag(f.id)
+                        }
                     }
+                    .labelsHidden()
                 }
-
-                labeledSlider("Line Spacing", value: $s.prefs.lineHeight, range: 1.1...2.2, icon: "line.3.horizontal")
-                labeledSlider("Margins", value: $s.prefs.margin, range: 16...140, icon: "arrow.left.and.right.text.vertical")
+                row("Spacing") { slider("Line Spacing", value: $s.prefs.lineHeight, range: 1.1...2.2) }
+                row("Margins") { slider("Margins", value: $s.prefs.margin, range: 16...140) }
 
                 HStack {
                     Toggle("Justify", isOn: $s.prefs.justify)
@@ -347,15 +349,19 @@ struct ReaderSettingsPopover: View {
             }
 
             if kind != .comic {
-                Picker("Layout", selection: $s.prefs.layout) {
-                    ForEach(PageLayout.allCases) { Text($0.name).tag($0) }
+                row("Layout") {
+                    Picker("Layout", selection: $s.prefs.layout) {
+                        ForEach(PageLayout.allCases) { Text($0.name).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden()
                 }
-                .pickerStyle(.segmented)
             }
-            Picker("Pages", selection: $s.prefs.spread) {
-                ForEach(SpreadMode.allCases) { Text($0.name).tag($0) }
+            row("Pages") {
+                Picker("Pages", selection: $s.prefs.spread) {
+                    ForEach(SpreadMode.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
             }
-            .pickerStyle(.segmented)
 
             if kind == .pdf {
                 Toggle("Dim pages in dark themes", isOn: $s.prefs.dimPDFInDarkThemes).controlSize(.small)
@@ -397,7 +403,7 @@ struct ReaderSettingsPopover: View {
                                 .strokeBorder(settings.prefs.theme == theme ? Color.accentColor : .primary.opacity(0.12),
                                               lineWidth: settings.prefs.theme == theme ? 2.5 : 1)
                         }
-                        Text(theme.name).font(.caption2).foregroundStyle(.secondary)
+                        Text(theme.name).font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -405,10 +411,14 @@ struct ReaderSettingsPopover: View {
         }
     }
 
-    private func labeledSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, icon: String) -> some View {
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 20).help(title).accessibilityHidden(true)
-            Slider(value: value, in: range).accessibilityLabel(title).controlSize(.small).tint(Color(hex: "#C96442"))
+            Text(label).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+            content().frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        Slider(value: value, in: range).accessibilityLabel(title).controlSize(.small).tint(Color(hex: "#C96442"))
     }
 }

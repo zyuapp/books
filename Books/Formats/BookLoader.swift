@@ -54,7 +54,7 @@ enum BookFormat: String, CaseIterable, Codable, Sendable {
 
 /// Parses a book file into a `Publication`, caching the unpacked result per book.
 enum BookLoader {
-    private static let cacheVersion = 6
+    private static let cacheVersion = 8
 
     static var cacheRoot: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -169,7 +169,8 @@ enum PDFMetadata {
             (0..<outline.numberOfChildren).compactMap { i in
                 guard let child = outline.child(at: i) else { return nil }
                 let page = child.destination?.page.map { doc.index(for: $0) } ?? 0
-                return TOCEntry(title: child.label ?? "Untitled", spineIndex: page, children: entries(child))
+                let label = (child.label ?? "").decodingHTMLEntities.collapsingWhitespace.droppingRepeatedTail
+                return TOCEntry(title: label.isEmpty ? "Untitled" : label, spineIndex: page, children: entries(child))
             }
         }
         let toc = doc.outlineRoot.map(entries) ?? []

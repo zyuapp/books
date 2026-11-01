@@ -219,10 +219,10 @@ private struct TopBar: View {
 
             VStack(spacing: 1) {
                 Text(model.title)
-                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                    .font(.system(.headline, design: .serif))
                     .lineLimit(1)
                 if let chapter = model.chapterTitle, chapter != model.title {
-                    Text(chapter).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(chapter).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .foregroundStyle(theme.foregroundColor.opacity(0.85))
@@ -296,7 +296,7 @@ private struct BottomBar: View {
                     pageButton(symbol: "chevron.left", label: "Previous Page (←)", forward: model.pagesRightToLeft)
                 }
                 Text(leftLabel)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .frame(minWidth: 110, alignment: model.isPaginatedLayout ? .center : .leading)
@@ -318,7 +318,7 @@ private struct BottomBar: View {
             .controlSize(.small)
             .frame(minWidth: 160, maxWidth: 380)
             Text("\(Int((progress * 100).rounded()))%")
-                .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                .font(.callout.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 38, alignment: .trailing)
         }
@@ -362,7 +362,7 @@ private struct BackPill: View {
             Button { withAnimation(.snappy) { model.goBack() } } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .bold))
-                    Text("Back to \(model.backLabel)").font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                    Text("Back to \(model.backLabel)").font(.body.weight(.medium)).lineLimit(1)
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 6)
@@ -391,66 +391,75 @@ private struct SelectionBar: View {
 
     var body: some View {
         let existing = selection.highlightID.flatMap { id in model.state.liveHighlights.first { $0.id == id } }
-        GlassEffectContainer(spacing: 6) {
-            HStack(spacing: 4) {
-                HStack(spacing: 7) {
-                    ForEach(HighlightColor.allCases, id: \.self) { c in
-                        Button { model.highlightSelection(c) } label: {
-                            ZStack {
-                                if c == .underline {
-                                    Image(systemName: "underline").font(.system(size: 12, weight: .bold)).foregroundStyle(c.color)
-                                } else {
-                                    Circle().fill(c.color.gradient).frame(width: 17, height: 17)
-                                }
-                                if existing?.color == c {
-                                    Circle().strokeBorder(.primary.opacity(0.6), lineWidth: 1.5).frame(width: 23, height: 23)
-                                }
+        HStack(spacing: 2) {
+            HStack(spacing: 6) {
+                ForEach(HighlightColor.allCases, id: \.self) { c in
+                    Button { model.highlightSelection(c) } label: {
+                        ZStack {
+                            if c == .underline {
+                                Image(systemName: "underline").font(.system(size: 12, weight: .bold)).foregroundStyle(c.color)
+                            } else {
+                                Circle().fill(c.color.gradient).frame(width: 17, height: 17)
                             }
-                            .frame(width: 24, height: 24)
-                            .contentShape(Circle())
+                            if existing?.color == c {
+                                Circle().strokeBorder(.primary.opacity(0.6), lineWidth: 1.5).frame(width: 23, height: 23)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .help(c == .underline ? "Underline" : "Highlight \(c.rawValue.capitalized)")
-                        .accessibilityLabel(c == .underline ? "Underline" : "Highlight \(c.rawValue)")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
+                    .help(c == .underline ? "Underline" : "Highlight \(c.rawValue.capitalized)")
+                    .accessibilityLabel(c == .underline ? "Underline" : "Highlight \(c.rawValue)")
                 }
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .glassEffect(.regular, in: .capsule)
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
 
-                HStack(spacing: 0) {
-                    labeledButton("note.text.badge.plus", existing?.note == nil ? "Add Note" : "Edit Note") { model.addNoteToSelection() }
-                    labeledButton("doc.on.doc", "Copy") { model.copySelection() }
-                    if let existing {
-                        labeledButton("trash", "Remove", role: .destructive) { model.deleteHighlight(existing.id) }
-                    }
-                }
-                .padding(.horizontal, 4)
-                .frame(height: 38)
-                .glassEffect(.regular, in: .capsule)
+            divider
 
-                Button { model.askClaude(action: nil) } label: {
-                    Label("Ask Claude", systemImage: "sparkles").font(.callout.weight(.semibold))
-                }
-                .buttonStyle(.glassProminent)
-                .tint(Color(hex: "#C96442"))
-                .controlSize(.large)
-                .help("Ask Claude about this passage (⌘L). Right-click for quick actions.")
-                .contextMenu {
-                    ForEach(ClaudeQuickAction.allCases) { a in
-                        Button(a.title, systemImage: a.symbol) { model.askClaude(action: a) }
-                    }
+            labeledButton("note.text.badge.plus", existing?.note == nil ? "Add Note" : "Edit Note") { model.addNoteToSelection() }
+            labeledButton("doc.on.doc", "Copy") { model.copySelection() }
+            if let existing {
+                labeledButton("trash", "Remove", role: .destructive) { model.deleteHighlight(existing.id) }
+            }
+
+            divider
+
+            Button { model.askClaude(action: nil) } label: {
+                Label("Ask Claude", systemImage: "sparkles")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(Color(hex: "#C96442").gradient, in: .capsule)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+            .padding(.trailing, 4)
+            .help("Ask Claude about this passage (⌘L). Right-click for quick actions.")
+            .contextMenu {
+                ForEach(ClaudeQuickAction.allCases) { a in
+                    Button(a.title, systemImage: a.symbol) { model.askClaude(action: a) }
                 }
             }
         }
+        .frame(height: 40)
+        .glassEffect(.regular, in: .capsule)
         .fixedSize()
         .readerOverlay()
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+    }
+
+    private var divider: some View {
+        Divider().frame(height: 18).padding(.horizontal, 4)
     }
 
     private func labeledButton(_ symbol: String, _ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(.body.weight(.medium))
                 .foregroundStyle(role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
                 .padding(.horizontal, 9)
                 .frame(height: 30)
@@ -469,15 +478,15 @@ private struct FootnoteCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Note", systemImage: "text.append").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Label("Note", systemImage: "text.append").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 if let open {
-                    Button("Go to Note", action: open).buttonStyle(.borderless).font(.caption.weight(.medium))
+                    Button("Go to Note", action: open).buttonStyle(.borderless).font(.subheadline.weight(.medium))
                 }
                 Button(action: dismiss) { Image(systemName: "xmark").font(.caption.weight(.bold)) }.buttonStyle(.borderless)
             }
             let text = Text(note.text)
-                .font(.system(size: 14, design: .serif))
+                .font(.system(.title3, design: .serif))
                 .lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

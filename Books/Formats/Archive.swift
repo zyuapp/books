@@ -72,6 +72,51 @@ extension String {
     var collapsingWhitespace: String {
         split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
+
+    /// "Topic 1. It’s Your LifeIt’s Your Life" → "Topic 1. It’s Your Life": some PDF outlines store a title twice.
+    var droppingRepeatedTail: String {
+        let chars = Array(self)
+        var length = chars.count / 2
+        while length >= 6 {
+            let tail = chars[(chars.count - length)...]
+            let before = chars[(chars.count - 2 * length)..<(chars.count - length)]
+            if tail.elementsEqual(before) { return String(chars[..<(chars.count - length)]) }
+            length -= 1
+        }
+        return self
+    }
+
+    /// Replaces `&#160;`, `&#x2014;` and the common named entities that stray into PDF outlines.
+    var decodingHTMLEntities: String {
+        guard contains("&") else { return self }
+        let named: [String: String] = ["amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{A0}",
+                                       "mdash": "—", "ndash": "–", "hellip": "…", "rsquo": "’", "lsquo": "‘", "rdquo": "”", "ldquo": "“"]
+        var out = ""
+        var rest = Substring(self)
+        while let amp = rest.firstIndex(of: "&") {
+            out += rest[..<amp]
+            rest = rest[amp...]
+            guard let semi = rest.firstIndex(of: ";"), rest.distance(from: rest.startIndex, to: semi) <= 10 else {
+                out += "&"; rest = rest.dropFirst(); continue
+            }
+            let body = rest[rest.index(after: rest.startIndex)..<semi]
+            let decoded: String?
+            if body.hasPrefix("#x") || body.hasPrefix("#X") {
+                decoded = UInt32(body.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map(String.init)
+            } else if body.hasPrefix("#") {
+                decoded = UInt32(body.dropFirst()).flatMap(Unicode.Scalar.init).map(String.init)
+            } else {
+                decoded = named[String(body)]
+            }
+            if let decoded {
+                out += decoded
+                rest = rest[rest.index(after: semi)...]
+            } else {
+                out += "&"; rest = rest.dropFirst()
+            }
+        }
+        return out + rest
+    }
 }
 
 enum HTMLTemplate {

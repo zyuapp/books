@@ -381,9 +381,9 @@ struct BookCard: View {
             .animation(.spring(duration: 0.3, bounce: 0.3), value: hovering)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 12.5, weight: .semibold)).lineLimit(2)
+                Text(title).font(.body.weight(.semibold)).lineLimit(2)
                 HStack(spacing: 6) {
-                    Text(state.author ?? book.format.displayName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(state.author ?? book.format.displayName).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 if state.status == .reading {
@@ -483,7 +483,7 @@ private struct HeroCard: View {
                     .frame(width: 150, height: 225)
                     .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("CONTINUE READING").font(.caption.weight(.bold)).tracking(1.2).foregroundStyle(.secondary)
+                    Text("CONTINUE READING").font(.subheadline.weight(.bold)).tracking(1.2).foregroundStyle(.secondary)
                     Text(title).font(.system(size: 30, weight: .semibold, design: .serif)).lineLimit(2)
                     if let author = state.author { Text(author).font(.title3).foregroundStyle(.secondary) }
                     if let label = state.position?.label {

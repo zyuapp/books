@@ -33,7 +33,7 @@ final class ClaudeChat {
 
     func begin(with seed: ClaudeRequestSeed) {
         cancel()
-        thread = ChatThread(title: seed.passage.map { String($0.prefix(60)) } ?? (reader?.chapterTitle ?? "Question"),
+        thread = ChatThread(title: seed.passage.map(ChatThread.title(from:)) ?? (reader?.chapterTitle ?? "Question"),
                             passage: seed.passage, locator: seed.locator)
         error = nil
         if let action = seed.action { send(action.prompt(hasPassage: seed.passage != nil)) }
@@ -66,7 +66,7 @@ final class ClaudeChat {
         input = ""
         error = nil
         if thread == nil {
-            thread = ChatThread(title: String(question.prefix(60)), passage: nil, locator: reader.location)
+            thread = ChatThread(title: ChatThread.title(from: question), passage: nil, locator: reader.location)
         }
         let history = thread!.messages
         thread!.messages.append(ChatMessage(role: .user, text: question))
@@ -188,21 +188,35 @@ final class ClaudeChat {
     }
 }
 
-/// Text scale for the Claude chat, adjusted with ⌘= / ⌘- while the panel is open.
-enum ChatTextSize {
-    static let key = "claudeTextScale"
-    static let range: ClosedRange<Double> = 0.8...2.0
+/// Typeface for Claude's replies, chosen in Settings › Claude.
+enum ChatFont: String, CaseIterable, Identifiable {
+    case charter, newYork, system
 
-    /// `0` resets to the default size; otherwise moves one step larger or smaller.
-    static func step(_ direction: Int) {
-        let current = UserDefaults.standard.object(forKey: key) as? Double ?? 1
-        let next = direction == 0 ? 1 : (current + Double(direction) * 0.1).clamped(to: range)
-        UserDefaults.standard.set((next * 10).rounded() / 10, forKey: key)
+    static let key = "chatFont"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .charter: "Charter"
+        case .newYork: "New York"
+        case .system: "San Francisco"
+        }
+    }
+    func font(_ size: CGFloat) -> Font {
+        switch self {
+        case .charter: .custom("Charter", size: size)
+        case .newYork: .system(size: size, design: .serif)
+        case .system: .system(size: size)
+        }
     }
 }
 
-private extension Comparable {
-    func clamped(to r: ClosedRange<Self>) -> Self { min(max(self, r.lowerBound), r.upperBound) }
+/// Reply text size in points, chosen in Settings › Claude; the rest of the conversation scales with it.
+enum ChatTextSize {
+    static let key = "chatTextSize"
+    static let standard = 15.5
+    static let options: [(name: String, size: Double)] = [
+        ("Small", 13.5), ("Default", 15.5), ("Large", 17.5), ("Extra Large", 19.5), ("Huge", 22),
+    ]
 }
 
 struct ChatActivity: Identifiable {
@@ -217,7 +231,7 @@ struct ClaudePanel: View {
     @Bindable var chat: ClaudeChat
     let theme: ReaderTheme
     @FocusState private var inputFocused: Bool
-    @AppStorage(ChatTextSize.key) private var textScale = 1.0
+    @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     private static let accent = Color(hex: "#C96442")
     private static let readableWidth: CGFloat = 760
@@ -269,9 +283,9 @@ struct ClaudePanel: View {
         HStack(spacing: 10) {
             ClaudeAvatar(size: 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Claude").font(.system(size: 14, weight: .semibold))
+                Text("Claude").font(.headline)
                 Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "") : "Reading companion")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
             PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations",
@@ -323,7 +337,7 @@ struct ClaudePanel: View {
                             if let progress = chat.toolProgress {
                                 HStack(spacing: 8) {
                                     ProgressView().controlSize(.small)
-                                    Text(progress + "…").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                                    Text(progress + "…").font(.callout.weight(.medium)).foregroundStyle(.secondary)
                                 }
                                 .transition(.opacity)
                             }
@@ -372,8 +386,8 @@ struct ClaudePanel: View {
                                 .frame(width: 28, height: 28)
                                 .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(action.title).font(.system(size: 13, weight: .medium))
-                                Text(action.subtitle(hasPassage: hasPassage)).font(.system(size: 11)).foregroundStyle(.secondary)
+                                Text(action.title).font(.body.weight(.medium))
+                                Text(action.subtitle(hasPassage: hasPassage)).font(.callout).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
@@ -395,7 +409,7 @@ struct ClaudePanel: View {
             TextField(chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
                       text: $chat.input, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13.5 * textScale))
+                .font(.system(size: 13.5 * textSize / ChatTextSize.standard))
                 .lineLimit(1...7)
                 .focused($inputFocused)
                 .onSubmit { chat.send() }
@@ -474,12 +488,12 @@ struct ClaudePanel: View {
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button { reader.claudeShowsHistory = false } label: {
-                    Label("Back", systemImage: "chevron.left").font(.system(size: 13, weight: .medium))
+                    Label("Back", systemImage: "chevron.left").font(.body.weight(.medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Self.accent)
                 Spacer()
-                Text("Conversations").font(.system(size: 14, weight: .semibold))
+                Text("Conversations").font(.headline)
                 Spacer()
                 PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                     chat.newThread()
@@ -516,7 +530,7 @@ struct ClaudePanel: View {
                 }
                 .scrollEdgeEffectStyle(.soft, for: .all)
                 Text("\(threads.count) conversation\(threads.count == 1 ? "" : "s") · synced with iCloud")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(.subheadline).foregroundStyle(.tertiary)
                     .padding(.bottom, 12)
             }
         }
@@ -576,7 +590,7 @@ private struct Chip: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold))
-            Text(title).font(.system(size: 11.5, weight: .medium))
+            Text(title).font(.callout.weight(.medium))
             Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 9)
@@ -618,10 +632,10 @@ private struct HistoryRow: View {
                 .frame(width: 28, height: 28)
                 .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
-                Text(thread.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                Text(thread.title).font(.body.weight(.medium)).lineLimit(2)
                 if let last = thread.messages.last(where: { $0.role == .assistant }) {
-                    Text(Markdown.attributed(last.text.replacingOccurrences(of: "\n", with: " ")))
-                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(2)
+                    Text(Markdown.attributed(ChatThread.preview(of: last.text)))
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
                 HStack(spacing: 4) {
                     Text(thread.updated, format: .relative(presentation: .named))
@@ -629,7 +643,7 @@ private struct HistoryRow: View {
                     Text("\(thread.messages.count) message\(thread.messages.count == 1 ? "" : "s")")
                     if isCurrent { Text("· Open").foregroundStyle(Color(hex: "#C96442")) }
                 }
-                .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                .font(.subheadline).foregroundStyle(.tertiary)
             }
             Spacer(minLength: 4)
             if confirming {
@@ -709,14 +723,14 @@ private struct ErrorCard: View {
 private struct MessageView: View {
     let message: ChatMessage
     var streaming = false
-    @AppStorage(ChatTextSize.key) private var textScale = 1.0
+    @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     var body: some View {
         if message.role == .user {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.text)
-                    .font(.system(size: 13 * textScale))
+                    .font(.system(size: 13.5 * textSize / ChatTextSize.standard))
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
@@ -732,9 +746,12 @@ private struct MessageView: View {
 struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
-    @AppStorage(ChatTextSize.key) private var scale = 1.0
 
-    private func serif(_ size: CGFloat) -> Font { .custom("Charter", size: size * scale) }
+    @AppStorage(ChatFont.key) private var face = ChatFont.charter
+    @AppStorage(ChatTextSize.key) private var size = ChatTextSize.standard
+
+    private var scale: CGFloat { size / ChatTextSize.standard }
+    private func serif(_ points: CGFloat) -> Font { face.font(points * scale) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -818,17 +835,17 @@ private struct ActivityList: View {
                         .frame(width: 22, height: 22)
                         .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 6))
                     Text(item.activity.title)
-                        .font(.system(size: 12))
+                        .font(.callout)
                         .strikethrough(item.undone)
                         .foregroundStyle(item.undone ? .secondary : .primary)
                         .lineLimit(2)
                     Spacer(minLength: 4)
                     if item.undone {
-                        Text("Undone").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text("Undone").font(.callout).foregroundStyle(.secondary)
                     } else if let undo, item.activity.undo != nil {
                         Button(item.activity.undoLabel) { undo(item.id) }
                             .buttonStyle(.borderless)
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(Color(hex: "#C96442"))
                     }
                 }
