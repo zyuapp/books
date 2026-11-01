@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/Books.app (universal).
+# Builds build.noindex/Books.app (universal). The .noindex suffix keeps build copies out of Spotlight.
 #
 # With Signing/Books.provisionprofile present, signs with Developer ID and the iCloud entitlements;
 # otherwise signs ad-hoc, and the app keeps its library in ~/Documents/Books.
@@ -26,16 +26,15 @@ identity=${identity:--}
 command -v xcodegen >/dev/null 2>&1 || { echo "XcodeGen is required: brew install xcodegen" >&2; exit 1; }
 xcodegen generate --quiet
 
-derived=build/DerivedData
+derived=build.noindex/DerivedData
 xcodebuild -project Books.xcodeproj -scheme Books -configuration Release -derivedDataPath "$derived" \
   -destination 'generic/platform=macOS' ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$build" \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
   -quiet build
 
-app=dist/Books.app
+app=build.noindex/Books.app
 rm -rf "$app"
-mkdir -p dist
 ditto "$derived/Build/Products/Release/Books.app" "$app"
 
 options=""

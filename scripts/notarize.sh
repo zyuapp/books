@@ -1,5 +1,5 @@
 #!/bin/sh
-# Notarizes and staples dist/Books.app, then writes the release assets to dist/:
+# Notarizes and staples build.noindex/Books.app, then writes the release assets to dist/:
 # Books.zip and Books.dmg, each with a .sha256 file.
 #
 # Needs an App Store Connect API key: APPLE_API_KEY (path to the .p8), APPLE_API_KEY_ID and
@@ -9,7 +9,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
-app=dist/Books.app
+app=build.noindex/Books.app
 [ -d "$app" ] || { echo "Missing $app; run scripts/build-app.sh first" >&2; exit 1; }
 : "${APPLE_API_KEY:?}" "${APPLE_API_KEY_ID:?}" "${APPLE_API_ISSUER:?}"
 
@@ -18,6 +18,7 @@ submit() {
 }
 
 # Notarization takes a zip; the stapled app is zipped again for download.
+mkdir -p dist
 rm -f dist/Books.zip
 ditto -c -k --keepParent "$app" dist/Books.zip
 submit dist/Books.zip

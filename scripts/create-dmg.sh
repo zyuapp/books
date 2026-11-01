@@ -2,7 +2,7 @@
 # Packages an app bundle into a drag-to-Applications DMG.
 set -eu
 
-app_path=${1:-dist/Books.app}
+app_path=${1:-build.noindex/Books.app}
 dmg_path=${2:-dist/Books.dmg}
 staging_dir=$(mktemp -d)
 

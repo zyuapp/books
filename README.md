@@ -61,7 +61,7 @@ Books runs the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI yo
 
 ```sh
 brew install xcodegen
-scripts/install-local.sh        # builds dist/Books.app and installs it in /Applications
+scripts/install-local.sh        # builds build.noindex/Books.app and installs it in /Applications
 ```
 
 Or run `xcodegen generate` and open `Books.xcodeproj`. `scripts/make-icon.swift` redraws the app icon.
