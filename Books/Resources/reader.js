@@ -206,18 +206,16 @@
     post({ type: 'location', page, pageCount: pageCount(), progression: progression(), textOffset: off, snippet: snippet(off), atEnd: atEnd() });
   }
 
-  function goToPage(n, animated) {
+  function goToPage(n) {
     if (cfg.layout !== 'paginated') return;
     page = Math.max(0, Math.min(pageCount() - 1, n));
-    const smooth = animated && cfg.animate;
-    se().scrollTo({ left: page * W(), top: 0, behavior: smooth ? 'smooth' : 'instant' });
-    // The viewport only reflects the new page once the smooth scroll ends.
-    if (smooth) setTimeout(report, 420); else report();
+    se().scrollTo({ left: page * W(), top: 0, behavior: 'instant' });
+    report();
   }
 
-  function goToY(y, animated) {
-    se().scrollTo({ top: Math.max(0, y - cfg.vmargin), behavior: animated ? 'smooth' : 'instant' });
-    setTimeout(report, animated ? 350 : 0);
+  function goToY(y) {
+    se().scrollTo({ top: Math.max(0, y - cfg.vmargin), behavior: 'instant' });
+    setTimeout(report, 0);
   }
 
   function apply(target) {
@@ -226,24 +224,24 @@
       const el = document.getElementById(target.fragment) || document.getElementsByName(target.fragment)[0];
       if (el) {
         const rect = el.getBoundingClientRect();
-        if (cfg.layout === 'paginated') goToPage(Math.floor((rect.left + se().scrollLeft) / W()), false);
-        else goToY(rect.top + se().scrollTop, false);
+        if (cfg.layout === 'paginated') goToPage(Math.floor((rect.left + se().scrollLeft) / W()));
+        else goToY(rect.top + se().scrollTop);
         return;
       }
     }
     if (target.end) {
-      if (cfg.layout === 'paginated') goToPage(pageCount() - 1, false);
-      else goToY(se().scrollHeight, false);
+      if (cfg.layout === 'paginated') goToPage(pageCount() - 1);
+      else goToY(se().scrollHeight);
       return;
     }
     if (target.textOffset != null && target.textOffset > 0) {
       const p = pageForOffset(target.textOffset);
-      if (cfg.layout === 'paginated') goToPage(p, false); else goToY(p, false);
+      if (cfg.layout === 'paginated') goToPage(p); else goToY(p);
       return;
     }
     const prog = target.progression || 0;
-    if (cfg.layout === 'paginated') goToPage(Math.floor(prog * pageCount() + 0.0001), false);
-    else goToY(prog * maxScrollTop() + cfg.vmargin, false);
+    if (cfg.layout === 'paginated') goToPage(Math.floor(prog * pageCount() + 0.0001));
+    else goToY(prog * maxScrollTop() + cfg.vmargin);
   }
 
   // ---------- Highlights ----------
@@ -308,8 +306,8 @@
     const marks = wrapRange(r, () => { const m = document.createElement('mark'); m.className = 'bk-find'; return m; });
     if (marks[0]) {
       const rect = marks[0].getBoundingClientRect();
-      if (cfg.layout === 'paginated') goToPage(Math.floor((rect.left + se().scrollLeft) / W()), false);
-      else goToY(rect.top + se().scrollTop - H() / 3, false);
+      if (cfg.layout === 'paginated') goToPage(Math.floor((rect.left + se().scrollLeft) / W()));
+      else goToY(rect.top + se().scrollTop - H() / 3);
     }
     setTimeout(() => clearMarks('bk-find'), 4000);
     return true;
@@ -445,27 +443,25 @@
       if (ready) requestAnimationFrame(() => { apply(anchor != null ? { textOffset: anchor } : { progression: 0 }); report(); });
     },
     go(target) { if (ready) { apply(target); report(); } else { pendingTarget = target; } },
-    next(animated) {
-      const anim = animated !== false;
+    next() {
       if (cfg.layout === 'paginated') {
-        if (page < pageCount() - 1) { goToPage(page + 1, anim); return true; }
+        if (page < pageCount() - 1) { goToPage(page + 1); return true; }
         return false;
       }
       if (cfg.layout === 'fixed') return false;
       const top = se().scrollTop;
       if (top >= maxScrollTop() - 2) return false;
-      se().scrollBy({ top: H() - 80, behavior: anim ? 'smooth' : 'instant' });
+      se().scrollBy({ top: H() - 80, behavior: 'instant' });
       return true;
     },
-    prev(animated) {
-      const anim = animated !== false;
+    prev() {
       if (cfg.layout === 'paginated') {
-        if (page > 0) { goToPage(page - 1, anim); return true; }
+        if (page > 0) { goToPage(page - 1); return true; }
         return false;
       }
       if (cfg.layout === 'fixed') return false;
       if (se().scrollTop <= 2) return false;
-      se().scrollBy({ top: -(H() - 80), behavior: anim ? 'smooth' : 'instant' });
+      se().scrollBy({ top: -(H() - 80), behavior: 'instant' });
       return true;
     },
     // Finds a quote in this chapter, tolerant of whitespace, soft hyphens, curly quotes and case.

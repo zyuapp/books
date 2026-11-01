@@ -6,7 +6,7 @@ A native macOS reader for EPUB, PDF, MOBI, AZW3, FB2, comic archives (CBZ, CBR, 
 - **Undo a jump**: after jumping by contents, link, search or the scrubber, ⌘Z takes you back.
 - **Highlights, notes and bookmarks**, exportable as Markdown.
 - **Ask Claude** about a passage, the chapter or the whole book, through your own Claude Code sign-in.
-- **Page-curl turns**, two-page spreads, eight reading themes and the macOS 26 Liquid Glass look.
+- **Two-page spreads**, eight reading themes and the macOS 26 Liquid Glass look.
 
 Requires macOS 26.
 

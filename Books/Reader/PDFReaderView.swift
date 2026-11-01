@@ -103,8 +103,6 @@ final class PDFEngine: NSObject, ReaderEngine {
         applyDimming(p.dimPDFInDarkThemes && theme.isDark)
         pdfView.backgroundColor = isDimmed ? paper.inverted : paper
         pdfView.pageShadowsEnabled = !isDimmed
-        spreadImages = [:]
-        prefetchNeighbors()
     }
 
     /// The color around the pages as the reader sees it.
@@ -209,7 +207,6 @@ final class PDFEngine: NSObject, ReaderEngine {
     }
 
     private func pageChanged() {
-        prefetchNeighbors()
         let count = max(1, document?.pageCount ?? 1)
         let index = currentPageIndex
         let visibleLast = pdfView.displayMode == .twoUp || pdfView.displayMode == .twoUpContinuous ? index + 1 : index
@@ -232,8 +229,6 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     func next() { turn(forward: true) }
     func previous() { turn(forward: false) }
-
-    private let curl = PageCurl()
 
     func focusContent() { pdfView.window?.makeFirstResponder(pdfView) }
 
@@ -263,213 +258,12 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     private func turn(forward: Bool) {
         guard forward ? pdfView.canGoToNextPage : pdfView.canGoToPreviousPage else { return }
-        let step = {
-            self.suppressJumpRecording = true
-            forward ? self.pdfView.goToNextPage(nil) : self.pdfView.goToPreviousPage(nil)
-            self.suppressJumpRecording = false
-        }
-        if PageCurl.isEnabled, pdfView.isPaginated, !userZoomed,
-           let current = spread(0), let target = spread(forward ? 1 : -1),
-           let before = spreadImages[spreadKey(current)], let after = spreadImages[spreadKey(target)] {
-            let token = curl.begin()
-            let paper = self.paper
-            curl.cover(pdfView, with: before, paper: paper)
-            step()
-            Task {
-                await curl.animate(from: before, to: after, forward: forward, paper: paper, token: token)
-                if curl.isCurrent(token) { curl.remove() }
-            }
-            return
-        }
-        guard PageCurl.isEnabled, pdfView.isPaginated, let before = snapshot() else {
-            _ = curl.begin()
-            step()
-            return
-        }
-        let token = curl.begin()
-        let paper = self.paper
-        curl.cover(pdfView, with: before, paper: paper)
-        step()
-        Task {
-            try? await Task.sleep(for: .milliseconds(30))
-            guard curl.isCurrent(token), let after = snapshot() else {
-                if curl.isCurrent(token) { curl.remove() }
-                return
-            }
-            await curl.animate(from: before, to: after, forward: forward, paper: paper, token: token)
-            if curl.isCurrent(token) { curl.remove() }
-        }
-    }
-
-    /// Renders the visible pages as they sit in the view (PDFKit's layers don't show up in cacheDisplay).
-    private func snapshot() -> CGImage? {
-        let bounds = pdfView.bounds
-        let scale = pdfView.window?.backingScaleFactor ?? 2
-        guard bounds.width > 0, document != nil else { return nil }
-        let pixelsPerUnit = scale * pdfView.scaleFactor
-        let pages = pdfView.visiblePages.compactMap { page -> (CGRect, CGImage)? in
-            let rect = displayedFrame(of: page)
-            guard rect.intersects(bounds), let image = pageImage(page, pixelsPerUnit: pixelsPerUnit) else { return nil }
-            return (rect, image)
-        }
-        return Self.compose(size: bounds.size, scale: scale, background: pdfView.backgroundColor.cgColor, dimmed: isDimmed, pages: pages)
-    }
-
-    nonisolated private static func compose(size: CGSize, scale: CGFloat, background: CGColor, dimmed: Bool,
-                                            pages: [(CGRect, CGImage)]) -> CGImage? {
-        guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
-                                  bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        let all = CGRect(origin: .zero, size: size)
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.setFillColor(background)
-        ctx.fill(all)
-        for (rect, image) in pages {
-            ctx.saveGState()
-            if !dimmed { ctx.setShadow(offset: CGSize(width: 0, height: -2), blur: 8, color: CGColor(gray: 0, alpha: 0.3)) }
-            ctx.setFillColor(.white)
-            ctx.fill(rect)
-            ctx.restoreGState()
-            let drawn = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
-            ctx.saveGState()
-            ctx.clip(to: rect)
-            ctx.draw(image, in: CGRect(origin: CGPoint(x: rect.minX, y: rect.maxY - drawn.height), size: drawn))
-            ctx.restoreGState()
-        }
-        if dimmed {
-            ctx.setBlendMode(.difference)
-            ctx.setFillColor(.white)
-            ctx.fill(all)
-        }
-        return ctx.makeImage()
-    }
-
-    /// Where PDFKit actually draws the page: its page view's frame, which can sit half a point off `convert(_:from:)`.
-    private func displayedFrame(of page: PDFPage) -> CGRect {
-        let estimate = pdfView.convert(page.bounds(for: pdfView.displayBox), from: page)
-        let frames = pdfView.documentView?.subviews.map { $0.convert($0.bounds, to: pdfView) } ?? []
-        return frames.first {
-            abs($0.midX - estimate.midX) < 2 && abs($0.midY - estimate.midY) < 2
-                && abs($0.width - estimate.width) < 2 && abs($0.height - estimate.height) < 2
-        } ?? estimate
-    }
-
-    /// Draws a page's vectors at PDFKit's own tile resolution, so every glyph lands on the pixel it has on screen.
-    /// The bitmap is rounded up to whole pixels at the top; the page's bottom-left sits at pixel (0, 0).
-    nonisolated private static func render(_ page: PDFPage, box displayBox: PDFDisplayBox, pixelsPerUnit: CGFloat) -> CGImage? {
-        let box = page.bounds(for: displayBox)
-        let quarterTurned = page.rotation % 180 != 0
-        let natural = quarterTurned ? CGSize(width: box.height, height: box.width) : box.size
-        let exactHeight = natural.height * pixelsPerUnit
-        let pixelsWide = Int((natural.width * pixelsPerUnit).rounded(.up)), pixelsHigh = Int(exactHeight.rounded(.up))
-        guard pixelsWide > 0, pixelsHigh > 0,
-              let ctx = CGContext(data: nil, width: pixelsWide, height: pixelsHigh, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        ctx.setFillColor(.white)
-        ctx.fill(CGRect(x: 0, y: 0, width: pixelsWide, height: pixelsHigh))
-        ctx.translateBy(x: 0, y: CGFloat(pixelsHigh) - exactHeight)
-        ctx.scaleBy(x: pixelsPerUnit, y: pixelsPerUnit)
-        page.draw(with: displayBox, to: ctx)
-        return ctx.makeImage()
-    }
-
-    /// Page bitmaps for the curl by page index, rendered ahead for the neighbouring spreads so a turn starts at once.
-    private var pageImages: [Int: CGImage] = [:]
-    /// Whole-view snapshots of the current and neighbouring spreads, keyed by `spreadKey`.
-    private var spreadImages: [String: CGImage] = [:]
-    private var pageImagesKey = ""
-    private var prefetchTask: Task<Void, Never>?
-
-    private func syncPageImages(pixelsPerUnit: CGFloat) {
-        let key = "\(pixelsPerUnit)|\(isDimmed)|\(pdfView.displayBox.rawValue)"
-        guard key != pageImagesKey else { return }
-        prefetchTask?.cancel()
-        pageImages = [:]
-        spreadImages = [:]
-        pageImagesKey = key
-    }
-
-    /// The spread `offset` spreads from the visible one, placed in the visible pages' frames,
-    /// or nil when its pages wouldn't sit in those frames (cover page, last page, mixed page sizes).
-    private func spread(_ offset: Int) -> [(index: Int, rect: CGRect)]? {
-        guard let document else { return nil }
-        let box = pdfView.displayBox
-        let visible = pdfView.visiblePages
-            .map { (index: document.index(for: $0), rect: displayedFrame(of: $0), size: $0.bounds(for: box).size) }
-            .sorted { $0.index < $1.index }
-        guard let first = visible.first, let last = visible.last else { return nil }
-        if offset != 0, pdfView.displayMode == .twoUp, visible.count == 1 { return nil }
-        let start = offset == 0 ? first.index : offset > 0 ? last.index + 1 : first.index - visible.count
-        guard start >= 0, start + visible.count <= document.pageCount else { return nil }
-        var out: [(index: Int, rect: CGRect)] = []
-        for (k, slot) in visible.enumerated() {
-            guard let size = document.page(at: start + k)?.bounds(for: box).size,
-                  abs(size.width - slot.size.width) < 1, abs(size.height - slot.size.height) < 1 else { return nil }
-            out.append((start + k, slot.rect))
-        }
-        return out
-    }
-
-    private func spreadKey(_ spread: [(index: Int, rect: CGRect)]) -> String {
-        "\(pdfView.bounds.size)|" + spread.map { "\($0.index)@\($0.rect)" }.joined(separator: ",")
-    }
-
-    private func pageImage(_ page: PDFPage, pixelsPerUnit: CGFloat) -> CGImage? {
-        guard let document else { return nil }
-        syncPageImages(pixelsPerUnit: pixelsPerUnit)
-        let index = document.index(for: page)
-        if let image = pageImages[index] { return image }
-        let image = Self.render(page, box: pdfView.displayBox, pixelsPerUnit: pixelsPerUnit)
-        pageImages[index] = image
-        return image
-    }
-
-    private func prefetchNeighbors() {
-        guard PageCurl.isEnabled, pdfView.isPaginated, let document, document.pageCount > 0 else { return }
-        let pixelsPerUnit = (pdfView.window?.backingScaleFactor ?? 2) * pdfView.scaleFactor
-        syncPageImages(pixelsPerUnit: pixelsPerUnit)
-        let current = currentPageIndex
-        let wanted = max(0, current - 2)...min(document.pageCount - 1, current + 3)
-        pageImages = pageImages.filter { wanted.contains($0.key) }
-        let missing = wanted.filter { pageImages[$0] == nil }.sorted { abs($0 - current) < abs($1 - current) }
-            .compactMap { i in (document.page(at: i) as? DimmablePDFPage).map { (i, $0) } }
-        let key = pageImagesKey, box = pdfView.displayBox
-        let size = pdfView.bounds.size, scale = pdfView.window?.backingScaleFactor ?? 2
-        let background = pdfView.backgroundColor.cgColor, dimmed = isDimmed
-        prefetchTask?.cancel()
-        prefetchTask = Task { [weak self] in
-            // Leave the running curl the CPU first.
-            try? await Task.sleep(for: .milliseconds(250))
-            for (index, page) in missing {
-                guard !Task.isCancelled else { return }
-                let image = await Task.detached(priority: .utility) {
-                    Self.render(page, box: box, pixelsPerUnit: pixelsPerUnit)
-                }.value
-                guard let self, self.pageImagesKey == key else { return }
-                self.pageImages[index] = image
-            }
-            guard !Task.isCancelled, let self, self.pageImagesKey == key, !self.userZoomed else { return }
-            let spreads = [0, 1, -1].compactMap { offset in self.spread(offset).map { (key: self.spreadKey($0), layout: $0) } }
-            self.spreadImages = self.spreadImages.filter { entry in spreads.contains { $0.key == entry.key } }
-            for spread in spreads where self.spreadImages[spread.key] == nil {
-                guard !Task.isCancelled, self.pageImagesKey == key else { return }
-                let pages = spread.layout.compactMap { item in self.pageImages[item.index].map { (item.rect, $0) } }
-                guard pages.count == spread.layout.count else { continue }
-                let image = await Task.detached(priority: .utility) {
-                    Self.compose(size: size, scale: scale, background: background, dimmed: dimmed, pages: pages)
-                }.value
-                guard self.pageImagesKey == key else { return }
-                self.spreadImages[spread.key] = image
-            }
-        }
+        suppressJumpRecording = true
+        forward ? pdfView.goToNextPage(nil) : pdfView.goToPreviousPage(nil)
+        suppressJumpRecording = false
     }
 
     func refreshHighlights() {
-        pageImagesKey = ""
-        spreadImages = [:]
         guard let document, let model else { return }
         for i in 0..<document.pageCount {
             guard let page = document.page(at: i) else { continue }

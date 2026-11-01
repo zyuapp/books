@@ -41,7 +41,6 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     private var lastTextOffset: Int?
     private var isReady = false
     private var loadID = 0
-    private let curl = PageCurl()
     var isDark = false
     var lastPrefs: ReaderPreferences?
 
@@ -123,7 +122,6 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             "font": font.css,
             "justify": p.justify,
             "hyphenate": p.hyphenate,
-            "animate": p.pageTurnAnimation,
             "bg": theme.background,
             "fg": theme.foreground,
             "secondary": theme.secondary,
@@ -167,7 +165,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         }
     }
 
-    private func load(_ index: Int, target: [String: Any], fade: Bool = true) {
+    private func load(_ index: Int, target: [String: Any]) {
         currentIndex = index
         pendingTarget = target
         isReady = false
@@ -175,11 +173,9 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         let fixed = currentIsFixed
         webView.isPaginated = prefs.layout == .paginated && !fixed
         installUserScripts(fixed: fixed)
-        if fade {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.12
-                webView.animator().alphaValue = 0
-            }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            webView.animator().alphaValue = 0
         }
         webView.loadFileURL(publication.spine[index].url, allowingReadAccessTo: publication.rootDirectory)
     }
@@ -190,48 +186,31 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     private var turnQueue: [Bool] = []
     private var isTurning = false
 
-    /// Turns run one at a time; presses made during a turn are queued (and cut the running curl short).
+    /// Turns run one at a time; presses made during a turn are queued.
     private func turn(forward: Bool) {
         turnQueue.append(forward)
         if turnQueue.count > 4 { turnQueue.removeFirst(turnQueue.count - 4) }
-        if isTurning { curl.cancelAnimation(); return }
+        if isTurning { return }
         isTurning = true
         Task {
             while !turnQueue.isEmpty {
                 let dir = turnQueue.removeFirst()
-                await performTurn(forward: dir, animate: PageCurl.isEnabled && prefs.layout == .paginated && turnQueue.isEmpty)
+                await waitUntilReady()
+                _ = await instantTurn(dir)
             }
             isTurning = false
         }
     }
 
-    private func performTurn(forward: Bool, animate: Bool) async {
-        await waitUntilReady()
-        guard animate, let before = await snapshot() else {
-            curl.remove()
-            _ = await instantTurn(forward, smooth: prefs.pageTurnAnimation && !animate && turnQueue.isEmpty)
-            return
-        }
-        let token = curl.begin()
-        let paper = NSColor(hex: prefs.theme.resolved(dark: isDark).background)
-        curl.cover(webView, with: before, paper: paper)
-        guard await instantTurn(forward) else { curl.remove(); return }
-        try? await Task.sleep(for: .milliseconds(45))
-        guard curl.isCurrent(token), let after = await snapshot() else { curl.remove(); return }
-        await curl.animate(from: before, to: after, forward: forward, rightToLeft: publication.rightToLeft,
-                           paper: paper, token: token)
-        curl.remove()
-    }
-
-    /// Turns one page without animation, crossing into the next or previous chapter. False at the book's edge.
-    private func instantTurn(_ forward: Bool, smooth: Bool = false) async -> Bool {
+    /// Turns one page, crossing into the next or previous chapter. False at the book's edge.
+    private func instantTurn(_ forward: Bool) async -> Bool {
         if isReady {
-            let moved = (try? await js("Reader.\(forward ? "next" : "prev")(\(smooth))")) as? Bool
+            let moved = (try? await js("Reader.\(forward ? "next" : "prev")()")) as? Bool
             if moved == true { return true }
         }
         let target = forward ? currentIndex + 1 : currentIndex - 1
         guard publication.spine.indices.contains(target) else { return false }
-        load(target, target: forward ? ["progression": 0] : ["end": true], fade: !PageCurl.isEnabled)
+        load(target, target: forward ? ["progression": 0] : ["end": true])
         await waitUntilReady()
         return true
     }
@@ -255,11 +234,6 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
         let waiters = readyWaiters
         readyWaiters = [:]
         waiters.values.forEach { $0.resume() }
-    }
-
-    private func snapshot() async -> CGImage? {
-        guard webView.bounds.width > 0, let image = try? await webView.takeSnapshot(configuration: nil) else { return nil }
-        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     func refreshHighlights() {
@@ -376,7 +350,6 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { loadFailed() }
 
     private func loadFailed() {
-        curl.remove()
         webView.alphaValue = 1
         resumeReadyWaiters()
     }

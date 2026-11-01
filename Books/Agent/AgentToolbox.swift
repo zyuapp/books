@@ -610,7 +610,6 @@ enum SettingsTools {
             .init(name: "page_spread", type: .string, description: "One page, two pages, or automatic.", options: ["auto", "single", "double"]),
             .init(name: "justify", type: .boolean, description: "Justify paragraphs."),
             .init(name: "hyphenate", type: .boolean, description: "Hyphenate words."),
-            .init(name: "page_turn_animation", type: .boolean, description: "Animate page turns."),
         ]
     ) { args, _ in
         let settings = ReaderSettings.shared
@@ -625,7 +624,6 @@ enum SettingsTools {
         if let v = args.string("page_spread").flatMap(SpreadMode.init(rawValue:)) { p.spread = v }
         if let v = args.bool("justify") { p.justify = v }
         if let v = args.bool("hyphenate") { p.hyphenate = v }
-        if let v = args.bool("page_turn_animation") { p.pageTurnAnimation = v }
         guard p != old else { return .text("Nothing changed.") }
         settings.prefs = p
         let activity = AgentActivity(symbol: "textformat.size", title: "Changed reading settings") { ReaderSettings.shared.prefs = old }

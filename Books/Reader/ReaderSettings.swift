@@ -134,7 +134,6 @@ struct ReaderPreferences: Codable, Equatable {
     var hyphenate = true
     var layout: PageLayout = .paginated
     var spread: SpreadMode = .auto
-    var pageTurnAnimation = true
     var dimPDFInDarkThemes = false
     var comicRightToLeft: Bool? = nil
 }

@@ -357,9 +357,6 @@ struct ReaderSettingsPopover: View {
             }
             .pickerStyle(.segmented)
 
-            if kind == .reflowable {
-                Toggle("Animate page turns", isOn: $s.prefs.pageTurnAnimation).controlSize(.small)
-            }
             if kind == .pdf {
                 Toggle("Dim pages in dark themes", isOn: $s.prefs.dimPDFInDarkThemes).controlSize(.small)
             }
