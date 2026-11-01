@@ -481,7 +481,7 @@ final class ReaderPDFView: PDFView {
         MainActor.assumeIsolated { engine?.selectionChanged() }
         // super runs the tracking loop; a plain click that selected nothing toggles the chrome.
         if event.clickCount == 1, currentSelection?.string?.isEmpty ?? true, let model {
-            MainActor.assumeIsolated { model.toggleChrome() }
+            MainActor.assumeIsolated { if !model.dismissPanel() { model.toggleChrome() } }
         }
     }
 

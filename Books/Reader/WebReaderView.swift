@@ -328,6 +328,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             if let s = body["url"] as? String, let url = URL(string: s), Self.isSafeExternal(url) { NSWorkspace.shared.open(url) }
         case "tap":
             if model.footnote != nil { model.footnote = nil; return }
+            if model.dismissPanel() { return }
             model.toggleChrome()
         case "footnote":
             guard let text = body["text"] as? String, let rect = Self.rect(body["rect"]) else { return }

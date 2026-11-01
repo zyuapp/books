@@ -112,6 +112,7 @@ struct ComicReaderView: View {
                 overlayRects: { model.overlayRects },
                 rightToLeft: { engine.rightToLeft },
                 onClick: { fractionX in
+                    if model.dismissPanel() { return }
                     if fractionX > 0.35 && fractionX < 0.65 { model.pokeChrome(); return }
                     (fractionX < 0.5) != engine.rightToLeft ? model.previousPage() : model.nextPage()
                 }

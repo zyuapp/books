@@ -335,6 +335,13 @@ final class ReaderModel {
         scheduleChromeHide()
     }
 
+    /// Closes the side panel; returns false when none was open.
+    func dismissPanel() -> Bool {
+        guard panel != nil else { return false }
+        panel = nil
+        return true
+    }
+
     func toggleChrome() {
         guard isFullScreen else { return }
         if chromeVisible {
