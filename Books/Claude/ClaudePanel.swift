@@ -152,6 +152,20 @@ final class ClaudeChat {
         if thread?.id == t.id { thread = nil }
     }
 
+    /// Deletes every conversation about the open book.
+    func deleteAll() {
+        guard let reader else { return }
+        cancel()
+        reader.library.update(reader.book.id) { s in
+            for i in s.chats.indices where !s.chats[i].deleted {
+                s.chats[i].deleted = true
+                s.chats[i].updated = Date()
+            }
+        }
+        thread = nil
+        error = nil
+    }
+
     private static func systemPrompt(reader: ReaderModel) -> String {
         let author = reader.publication?.author ?? reader.state.author
         let pct = Int((reader.location.totalProgress * 100).rounded())
@@ -231,6 +245,7 @@ struct ClaudePanel: View {
     @Bindable var chat: ClaudeChat
     let theme: ReaderTheme
     @FocusState private var inputFocused: Bool
+    @State private var confirmingClearAll = false
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     private static let accent = Color(hex: "#C96442")
@@ -288,17 +303,19 @@ struct ClaudePanel: View {
                     .font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
-            PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
-                chat.newThread()
-                inputFocused = true
-            }
-            PanelIconButton(symbol: reader.claudeExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                            label: reader.claudeExpanded ? "Make Smaller" : "Expand") {
-                withAnimation(.spring(duration: 0.4)) { reader.claudeExpanded.toggle() }
-            }
-            PanelIconButton(symbol: "xmark", label: "Close") {
-                withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
+            HStack(spacing: 4) {
+                PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
+                PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
+                    chat.newThread()
+                    inputFocused = true
+                }
+                PanelIconButton(symbol: reader.claudeExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                label: reader.claudeExpanded ? "Make Smaller" : "Expand") {
+                    withAnimation(.spring(duration: 0.4)) { reader.claudeExpanded.toggle() }
+                }
+                PanelIconButton(symbol: "xmark", label: "Close") {
+                    withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -494,11 +511,23 @@ struct ClaudePanel: View {
                 Spacer()
                 Text("Conversations").font(.headline)
                 Spacer()
-                PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
-                    chat.newThread()
-                    reader.claudeShowsHistory = false
-                    inputFocused = true
+                HStack(spacing: 4) {
+                    Button("Clear All") { confirmingClearAll = true }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(threads.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
+                        .disabled(threads.isEmpty)
+                        .padding(.trailing, 6)
+                    PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
+                        chat.newThread()
+                        reader.claudeShowsHistory = false
+                        inputFocused = true
+                    }
                 }
+            }
+            .confirmationDialog("Delete all conversations about this book?", isPresented: $confirmingClearAll) {
+                Button("Delete All", role: .destructive) { withAnimation(.snappy) { chat.deleteAll() } }
+            } message: {
+                Text("\(threads.count == 1 ? "1 conversation" : "\(threads.count) conversations") will be removed from all your devices.")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -630,38 +659,30 @@ private struct HistoryRow: View {
                 .font(.subheadline).foregroundStyle(.tertiary)
             }
             Spacer(minLength: 4)
-            if confirming {
-                VStack(spacing: 4) {
-                    Button("Delete", role: .destructive, action: delete)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .controlSize(.small)
-                    Button("Cancel") { withAnimation(.snappy) { confirming = false } }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else {
-                Button { withAnimation(.snappy) { confirming = true } } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(hovering ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Delete Conversation")
-                .accessibilityLabel("Delete conversation")
+            Button { confirming = true } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(hovering ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help("Delete Conversation")
+            .accessibilityLabel("Delete conversation")
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 14).fill(.primary.opacity(hovering ? 0.07 : isCurrent ? 0.05 : 0)))
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
-        .onHover { hovering = $0; if !$0 { confirming = false } }
+        .onHover { hovering = $0 }
         .contextMenu {
             Button("Open", systemImage: "arrow.right.circle", action: open)
-            Button("Delete Conversation", systemImage: "trash", role: .destructive, action: delete)
+            Button("Delete Conversation…", systemImage: "trash", role: .destructive) { confirming = true }
+        }
+        .confirmationDialog("Delete this conversation?", isPresented: $confirming) {
+            Button("Delete", role: .destructive, action: delete)
+        } message: {
+            Text("“\(thread.title)” will be removed from all your devices.")
         }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Open", open)

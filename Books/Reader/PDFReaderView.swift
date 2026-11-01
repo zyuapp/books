@@ -37,12 +37,15 @@ final class PDFEngine: NSObject, ReaderEngine {
     private var suppressJumpRecording = false
     var isDark = false
     var lastPrefs: ReaderPreferences?
+    /// Per-book zoom, kept on this Mac only because the right scale depends on the screen.
+    private let zoomKey: String
 
     private static let highlightTag = "com.zyu.books.highlight"
 
     init(model: ReaderModel, publication: Publication) {
         self.model = model
         self.publication = publication
+        zoomKey = "pdfZoom.\(model.book.id)"
         document = PDFDocument(url: publication.sourceURL)
         super.init()
         document?.delegate = self
@@ -73,6 +76,7 @@ final class PDFEngine: NSObject, ReaderEngine {
         let target = model?.restoreTarget().index ?? 0
         DispatchQueue.main.async { [weak self] in
             guard let self, let page = self.document?.page(at: min(target, max(0, (self.document?.pageCount ?? 1) - 1))) else { return }
+            self.restoreZoom()
             self.suppressJumpRecording = true
             self.pdfView.go(to: page)
             self.suppressJumpRecording = false
@@ -151,6 +155,16 @@ final class PDFEngine: NSObject, ReaderEngine {
         userZoomed = true
         pdfView.autoScales = false
         pdfView.scaleFactor = min(6, max(0.25, pdfView.scaleFactor * pow(1.15, CGFloat(step))))
+        UserDefaults.standard.set(Double(pdfView.scaleFactor), forKey: zoomKey)
+    }
+
+    private func restoreZoom() {
+        let saved = UserDefaults.standard.double(forKey: zoomKey)
+        guard saved > 0 else { return }
+        userZoomed = true
+        pdfView.autoScales = false
+        pdfView.scaleFactor = CGFloat(saved)
+        scaleChanged()
     }
 
     func scrollContent(by fraction: CGFloat) {
@@ -186,6 +200,7 @@ final class PDFEngine: NSObject, ReaderEngine {
         if userZoomed {
             userZoomed = false
             model?.zoomPercent = nil
+            UserDefaults.standard.removeObject(forKey: zoomKey)
         }
         guard pdfView.isPaginated, let page = pdfView.currentPage ?? document?.page(at: 0) else {
             pdfView.autoScales = true
