@@ -109,6 +109,8 @@ final class ReaderModel {
     var footnote: FootnotePopup?
     var noteEditor: Highlight?
     var claudeDraft: ClaudeRequestSeed?
+    /// Set to start a blank conversation once the Claude panel handles it.
+    var claudeNewThreadRequested = false
 
     var searchQuery = ""
     private(set) var searchResults: [SearchResult] = []
@@ -552,6 +554,15 @@ final class ReaderModel {
         if passage != nil || action != nil {
             claudeDraft = ClaudeRequestSeed(passage: passage, action: action, locator: location)
         }
+        selection = nil
+        engine?.clearSelection()
+        withAnimation(.spring(duration: 0.4)) { showClaude = true }
+        claudeFocusRequest += 1
+    }
+
+    func newClaudeChat() {
+        claudeDraft = nil
+        claudeNewThreadRequested = true
         selection = nil
         engine?.clearSelection()
         withAnimation(.spring(duration: 0.4)) { showClaude = true }

@@ -295,6 +295,9 @@ struct ClaudePanel: View {
         .onChange(of: reader.claudeDraft) { _, seed in
             if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
         }
+        .onChange(of: reader.claudeNewThreadRequested) { _, requested in
+            if requested { startNewThread() }
+        }
         .onChange(of: reader.claudeFocusRequest) { _, _ in
             reader.claudeShowsHistory = false
             focusInput()
@@ -302,9 +305,16 @@ struct ClaudePanel: View {
         .onChange(of: inputFocused) { _, f in reader.claudeInputFocused = f }
         .onAppear {
             if let seed = reader.claudeDraft { chat.begin(with: seed); reader.claudeDraft = nil }
+            if reader.claudeNewThreadRequested { startNewThread() }
             focusInput()
         }
         .onDisappear { reader.claudeInputFocused = false }
+    }
+
+    private func startNewThread() {
+        reader.claudeNewThreadRequested = false
+        chat.newThread()
+        reader.claudeShowsHistory = false
     }
 
     /// Focus set during the same update as the field's insertion is dropped, so it waits a run-loop turn.

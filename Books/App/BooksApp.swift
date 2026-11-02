@@ -253,6 +253,9 @@ struct BooksCommands: Commands {
             }
             .keyboardShortcut("l")
             .disabled(reader == nil)
+            Button("New Claude Chat") { reader?.newClaudeChat() }
+                .keyboardShortcut("n")
+                .disabled(reader == nil)
             Menu("Ask Claude to…") {
                 ForEach(ClaudeQuickAction.allCases) { a in
                     Button(a.title) { reader?.askClaude(action: a) }
