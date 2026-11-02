@@ -113,22 +113,26 @@ private struct NotesList: View {
         let highlights = model.state.liveHighlights.sorted { ($0.locator.totalProgress, $0.range?.start ?? 0) < ($1.locator.totalProgress, $1.range?.start ?? 0) }
         let bookmarks = model.state.liveBookmarks.sorted { $0.locator.totalProgress < $1.locator.totalProgress }
         VStack(spacing: 0) {
-            HStack {
-                Picker("", selection: $tab) {
-                    Text("Highlights \(highlights.count)").tag(0)
-                    Text("Bookmarks \(bookmarks.count)").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
+            HStack(spacing: 4) {
+                chip("Highlights", tag: 0)
+                chip("Bookmarks", tag: 1)
+                Spacer(minLength: 8)
                 Menu {
                     Button("Copy All as Markdown") { exportMarkdown() }
-                } label: { Image(systemName: "square.and.arrow.up") }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
+                .help("Export")
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -164,6 +168,20 @@ private struct NotesList: View {
         }
     }
 
+    private func chip(_ title: String, tag: Int) -> some View {
+        let selected = tab == tag
+        return Button { tab = tag } label: {
+            Text(title)
+                .font(.subheadline.weight(selected ? .semibold : .medium))
+                .foregroundStyle(selected ? .primary : .secondary)
+                .padding(.horizontal, 11)
+                .frame(height: 28)
+                .background(selected ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear), in: .capsule)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func empty(_ title: String, _ detail: String) -> some View {
         VStack(spacing: 6) {
             Text(title).font(.headline)
@@ -188,12 +206,17 @@ private struct HighlightRow: View {
             HStack(alignment: .top, spacing: 10) {
                 RoundedRectangle(cornerRadius: 2).fill(highlight.color.color.gradient).frame(width: 4)
                 VStack(alignment: .leading, spacing: 6) {
+                    let note = highlight.note.flatMap { $0.isEmpty ? nil : $0 }
                     Text(highlight.text)
                         .font(.system(.body, design: .serif))
-                        .lineLimit(5)
+                        .foregroundStyle(note == nil ? .primary : .secondary)
+                        .lineLimit(note == nil ? 5 : 3)
                         .multilineTextAlignment(.leading)
-                    if let note = highlight.note, !note.isEmpty {
-                        Text(note).font(.callout).foregroundStyle(.secondary).lineLimit(4)
+                    if let note {
+                        Text(note)
+                            .font(.body)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text(ReaderModel.describe(highlight.locator, publication: model.publication))
                         .font(.subheadline).foregroundStyle(.tertiary)

@@ -144,8 +144,18 @@ struct ReaderView: View {
                         .position(selectionBarPosition(sel.rect, in: geo.size))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
+                if let sel = model.selection, let note = highlightNote(sel) {
+                    NoteCard(label: "Your Note", symbol: "note.text", text: note, actionTitle: "Edit", action: { model.addNoteToSelection() }) {
+                        model.selection = nil
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: noteCardBelow(sel.rect, in: geo.size) ? .topLeading : .bottomLeading)
+                    .offset(noteCardOffset(sel.rect, in: geo.size))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
                 if let note = model.footnote {
-                    FootnoteCard(note: note, theme: theme, open: note.link.map { url in { model.openLink(url) } }) { model.footnote = nil }
+                    NoteCard(label: "Note", symbol: "text.append", text: note.text,
+                             actionTitle: "Go to Note", action: note.link.map { url in { model.openLink(url) } }) { model.footnote = nil }
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: note.rect.maxY < geo.size.height * 0.6 ? .topLeading : .bottomLeading)
@@ -164,12 +174,36 @@ struct ReaderView: View {
         }
     }
 
+    private static let barHeight: CGFloat = 46
+    private static let barGap: CGFloat = 22
+
+    private func barAbove(_ rect: CGRect) -> Bool { rect.minY - Self.barHeight / 2 - Self.barGap >= 90 }
+
     private func selectionBarPosition(_ rect: CGRect, in size: CGSize) -> CGPoint {
-        let barHeight: CGFloat = 46, barWidth: CGFloat = 560
-        var y = rect.minY - barHeight / 2 - 22
-        if y < 90 { y = rect.maxY + barHeight / 2 + 22 }
+        let barHeight = Self.barHeight, barWidth: CGFloat = 560
+        let y = barAbove(rect) ? rect.minY - barHeight / 2 - Self.barGap : rect.maxY + barHeight / 2 + Self.barGap
         let x = min(max(rect.midX, barWidth / 2 + 12), size.width - barWidth / 2 - 12)
         return CGPoint(x: x, y: min(max(y, barHeight), size.height - barHeight))
+    }
+
+    private func highlightNote(_ sel: ReaderSelection) -> String? {
+        guard let id = sel.highlightID, let note = model.state.liveHighlights.first(where: { $0.id == id })?.note,
+              !note.isEmpty else { return nil }
+        return note
+    }
+
+    /// The note card sits on the side of the passage away from the selection bar, or past the bar when that side lacks room.
+    private func noteCardBelow(_ rect: CGRect, in size: CGSize) -> Bool {
+        !barAbove(rect) || rect.maxY < size.height * 0.6
+    }
+
+    private func noteCardOffset(_ rect: CGRect, in size: CGSize) -> CGSize {
+        let w: CGFloat = 360, pastBar = Self.barGap + Self.barHeight
+        let x = min(max(rect.midX - w / 2, 16), size.width - w - 16)
+        if !barAbove(rect) { return CGSize(width: x, height: rect.maxY + pastBar + 10) }
+        return rect.maxY < size.height * 0.6
+            ? CGSize(width: x, height: rect.maxY + 10)
+            : CGSize(width: x, height: -(size.height - rect.minY + pastBar + 10))
     }
 
     private func footnoteOffset(_ rect: CGRect, in size: CGSize) -> CGSize {
@@ -460,31 +494,33 @@ private struct SelectionBar: View {
     }
 }
 
-private struct FootnoteCard: View {
-    let note: FootnotePopup
-    let theme: ReaderTheme
-    let open: (() -> Void)?
+private struct NoteCard: View {
+    let label: String
+    let symbol: String
+    let text: String
+    let actionTitle: String
+    let action: (() -> Void)?
     let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Note", systemImage: "text.append").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Label(label, systemImage: symbol).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
-                if let open {
-                    Button("Go to Note", action: open).buttonStyle(.borderless).font(.subheadline.weight(.medium))
+                if let action {
+                    Button(actionTitle, action: action).buttonStyle(.borderless).font(.subheadline.weight(.medium))
                 }
                 Button(action: dismiss) { Image(systemName: "xmark").font(.caption.weight(.bold)) }.buttonStyle(.borderless)
             }
-            let text = Text(note.text)
+            let content = Text(text)
                 .font(.system(.title3, design: .serif))
                 .lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if note.text.count > 420 {
-                ScrollView { text }.frame(height: 180)
+            if text.count > 420 {
+                ScrollView { content }.frame(height: 220)
             } else {
-                text.fixedSize(horizontal: false, vertical: true)
+                content.fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(16)
