@@ -51,6 +51,9 @@ Books runs the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI yo
 | ⌥← ⌥→ | Previous / next chapter |
 | ⌘Z, ⇧⌘Z | Undo / redo a jump |
 | ⌘F | Find in book (in the library: search the library) |
+| ⌥⌘T | Contents |
+| ⌥⌘N | Highlights & bookmarks |
+| ⌥⌘A | Reading settings |
 | ⌘D | Bookmark |
 | ⌘L | Ask Claude |
 | ⌘+ ⌘− ⌘0 | Text size |

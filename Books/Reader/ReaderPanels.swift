@@ -397,7 +397,8 @@ struct ReaderSettingsPopover: View {
             }
         }
         .padding(18)
-        .frame(width: 320)
+        .frame(minWidth: 320)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var themeGrid: some View {

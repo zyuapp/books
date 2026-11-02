@@ -232,9 +232,9 @@ private struct TopBar: View {
                     .glassButtonStyle()
                     .help("Back to Library (⇧⌘L)")
                     .accessibilityLabel("Back to Library")
-                    panelButton(.contents, symbol: "list.bullet", help: "Contents")
-                    panelButton(.notes, symbol: "highlighter", help: "Highlights & Bookmarks")
-                    panelButton(.search, symbol: "magnifyingglass", help: "Search")
+                    panelButton(.contents, symbol: "list.bullet", label: "Contents", shortcut: "⌥⌘T")
+                    panelButton(.notes, symbol: "highlighter", label: "Highlights & Bookmarks", shortcut: "⌥⌘N")
+                    panelButton(.search, symbol: "magnifyingglass", label: "Search", shortcut: "⌘F")
                 }
             }
             .readerOverlay()
@@ -261,7 +261,7 @@ private struct TopBar: View {
                         Image(systemName: "textformat.size").frame(width: 18, height: 18)
                     }
                     .glassButtonStyle()
-                    .help("Reading Settings")
+                    .help("Reading Settings (⌥⌘A)")
                     .accessibilityLabel("Reading Settings")
                     .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
                         ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable, reader: model)
@@ -295,7 +295,7 @@ private struct TopBar: View {
         .frame(height: 52)
     }
 
-    private func panelButton(_ panel: ReaderPanel, symbol: String, help: String) -> some View {
+    private func panelButton(_ panel: ReaderPanel, symbol: String, label: String, shortcut: String) -> some View {
         Button {
             model.panel = model.panel == panel ? nil : panel
         } label: {
@@ -303,8 +303,8 @@ private struct TopBar: View {
         }
         .glassButtonStyle()
         .tint(model.panel == panel ? Color.accentColor : nil)
-        .help(help)
-        .accessibilityLabel(help)
+        .help("\(label) (\(shortcut))")
+        .accessibilityLabel(label)
     }
 }
 

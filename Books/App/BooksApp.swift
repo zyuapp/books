@@ -263,7 +263,7 @@ struct BooksCommands: Commands {
             }
             .disabled(reader == nil)
             Divider()
-            Button("Reading Settings") { reader?.showSettings.toggle() }.keyboardShortcut("a", modifiers: [.command, .shift])
+            Button("Reading Settings") { reader?.showSettings.toggle() }.keyboardShortcut("a", modifiers: [.command, .option])
                 .disabled(reader == nil)
             Button(isPDF ? "Zoom In" : "Bigger Text") {
                 if isPDF { reader?.engine?.zoom(by: 1) } else { ReaderSettings.shared.prefs.fontSize = min(40, ReaderSettings.shared.prefs.fontSize + 1) }

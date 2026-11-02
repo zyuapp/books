@@ -35,6 +35,7 @@ final class PDFEngine: NSObject, ReaderEngine {
     private let document: PDFDocument?
     private var observers: [NSObjectProtocol] = []
     private var suppressJumpRecording = false
+    private var pageToRestore: Int?
     var isDark = false
     var lastPrefs: ReaderPreferences?
     /// Per-book zoom, kept on this Mac only because the right scale depends on the screen.
@@ -62,7 +63,10 @@ final class PDFEngine: NSObject, ReaderEngine {
         let center = NotificationCenter.default
         pdfView.postsFrameChangedNotifications = true
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: pdfView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.fitPages() }
+            MainActor.assumeIsolated {
+                self?.fitPages()
+                DispatchQueue.main.async { self?.restorePageIfSized() }
+            }
         })
         observers.append(center.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.scaleChanged() }
@@ -73,15 +77,20 @@ final class PDFEngine: NSObject, ReaderEngine {
         observers.append(center.addObserver(forName: .PDFViewSelectionChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.selectionChanged() }
         })
-        let target = model?.restoreTarget().index ?? 0
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let page = self.document?.page(at: min(target, max(0, (self.document?.pageCount ?? 1) - 1))) else { return }
-            self.restoreZoom()
-            self.suppressJumpRecording = true
-            self.pdfView.go(to: page)
-            self.suppressJumpRecording = false
-            self.pageChanged()
-        }
+        pageToRestore = model?.restoreTarget().index ?? 0
+        DispatchQueue.main.async { [weak self] in self?.restorePageIfSized() }
+    }
+
+    /// PDFKit places a page for the view's current size and doesn't place it again after the first layout.
+    private func restorePageIfSized() {
+        guard let target = pageToRestore, pdfView.bounds.width > 0, pdfView.bounds.height > 0 else { return }
+        pageToRestore = nil
+        guard let document, let page = document.page(at: min(target, max(0, document.pageCount - 1))) else { return }
+        restoreZoom()
+        suppressJumpRecording = true
+        pdfView.go(to: page)
+        suppressJumpRecording = false
+        pageChanged()
     }
 
     deinit {
@@ -160,6 +169,8 @@ final class PDFEngine: NSObject, ReaderEngine {
 
     /// Paged mode shows whole pages (fit to window, below the toolbar); scroll mode fits the width.
     private var fittedScale: CGFloat?
+    /// `scrollPosition` when each page was last turned away from, by page index.
+    private var leftScrollPositions: [Int: CGPoint] = [:]
     private var lastDisplayMode: PDFDisplayMode?
 
     private var userZoomed = false
@@ -286,25 +297,44 @@ final class PDFEngine: NSObject, ReaderEngine {
         return nil
     }
 
+    /// Forward turns start at the top of the page. Backward turns return to where the page was left, or its top.
     private func turn(forward: Bool) {
         guard forward ? pdfView.canGoToNextPage : pdfView.canGoToPreviousPage else { return }
+        let leaving = scrollPosition
+        if pdfView.isPaginated { leftScrollPositions[currentPageIndex] = leaving }
         suppressJumpRecording = true
         forward ? pdfView.goToNextPage(nil) : pdfView.goToPreviousPage(nil)
         suppressJumpRecording = false
         guard pdfView.isPaginated else { return }
-        scrollToTop()
+        let top = CGPoint(x: leaving.x, y: 0)
+        let target = forward ? top : leftScrollPositions[currentPageIndex] ?? top
+        scroll(to: target)
         // PDFKit can restore its own offset once it lays out the new page.
-        DispatchQueue.main.async { [weak self] in self?.scrollToTop() }
+        DispatchQueue.main.async { [weak self] in self?.scroll(to: target) }
     }
 
-    /// Shows the top of a page taller than the window, top margin included.
-    private func scrollToTop() {
+    /// How far a page larger than the window is scrolled: 0 to 1 from the left and from the top, margins included.
+    private var scrollPosition: CGPoint {
+        guard let doc = pdfView.documentView, let clip = doc.enclosingScrollView?.contentView else { return .zero }
+        let frame = doc.frame, bounds = clip.bounds
+        let rangeX = frame.width - bounds.width, rangeY = frame.height - bounds.height
+        let fromTop = clip.isFlipped ? bounds.minY - frame.minY : frame.maxY - bounds.maxY
+        return CGPoint(x: rangeX > 0 ? (bounds.minX - frame.minX) / rangeX : 0,
+                       y: rangeY > 0 ? fromTop / rangeY : 0)
+    }
+
+    private func scroll(to position: CGPoint) {
         guard let doc = pdfView.documentView, let scrollView = doc.enclosingScrollView else { return }
         let clip = scrollView.contentView
         let frame = doc.frame, size = clip.bounds.size
-        guard frame.height > size.height else { return }
         var origin = clip.bounds.origin
-        origin.y = clip.isFlipped ? frame.minY : frame.maxY - size.height
+        if frame.width > size.width {
+            origin.x = frame.minX + (frame.width - size.width) * position.x
+        }
+        if frame.height > size.height {
+            let fromTop = (frame.height - size.height) * position.y
+            origin.y = clip.isFlipped ? frame.minY + fromTop : frame.maxY - size.height - fromTop
+        }
         clip.scroll(to: origin)
         scrollView.reflectScrolledClipView(clip)
     }
