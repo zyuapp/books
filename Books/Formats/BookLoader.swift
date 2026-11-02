@@ -61,11 +61,15 @@ enum BookLoader {
         return caches.appendingPathComponent("com.zyu.books/Publications", isDirectory: true)
     }
 
+    static func cacheDirectory(for url: URL, bookID: String) -> URL {
+        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+        return cacheRoot.appendingPathComponent("\(bookID)-\(Int(mtime))-v\(cacheVersion)", isDirectory: true)
+    }
+
     static func load(_ url: URL, bookID: String) throws -> Publication {
         guard let format = BookFormat(url: url) else { throw PublicationError.unsupportedFormat(url.pathExtension) }
         let fm = FileManager.default
-        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
-        let dir = cacheRoot.appendingPathComponent("\(bookID)-\(Int(mtime))-v\(cacheVersion)", isDirectory: true)
+        let dir = cacheDirectory(for: url, bookID: bookID)
         let manifest = dir.appendingPathComponent("publication.json")
 
         if let data = try? Data(contentsOf: manifest),

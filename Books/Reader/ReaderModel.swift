@@ -20,14 +20,6 @@ struct FootnotePopup: Equatable {
     var link: URL?
 }
 
-struct SearchResult: Identifiable, Hashable {
-    let id = UUID()
-    var locator: Locator
-    var occurrence: Int
-    var snippet: AttributedString
-    var chapter: String
-}
-
 @MainActor
 protocol ReaderEngine: AnyObject {
     func go(to locator: Locator, fragment: String?, atEnd: Bool)
@@ -129,7 +121,8 @@ final class ReaderModel {
     @ObservationIgnored private var pillTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var chromeTask: Task<Void, Never>?
-    @ObservationIgnored private var bookText: [String]?
+    @ObservationIgnored private var bookTextTask: Task<[String], Never>?
+    @ObservationIgnored private var loweredBookTextTask: Task<[String], Never>?
     /// False until the reader leaves the restored spot, so restore reports never overwrite newer synced positions.
     @ObservationIgnored private var userMoved = false
 
@@ -571,12 +564,20 @@ final class ReaderModel {
 
     /// Plain text of every spine item (pages for PDFs), cached.
     func bookTexts() async -> [String] {
-        if let bookText { return bookText }
+        if let bookTextTask { return await bookTextTask.value }
         guard let publication else { return [] }
         let pub = publication
-        let texts = await Task.detached(priority: .userInitiated) { TextExtractor.texts(for: pub) }.value
-        bookText = texts
-        return texts
+        let id = book.id
+        let task = Task.detached(priority: .userInitiated) { TextExtractor.texts(for: pub, bookID: id) }
+        bookTextTask = task
+        return await task.value
+    }
+
+    private func loweredBookTexts(_ texts: [String]) async -> [String] {
+        if let loweredBookTextTask { return await loweredBookTextTask.value }
+        let task = Task.detached(priority: .userInitiated) { TextExtractor.lowercased(texts) }
+        loweredBookTextTask = task
+        return await task.value
     }
 
     // MARK: Search
@@ -587,16 +588,13 @@ final class ReaderModel {
         guard q.count >= 2, let publication else { searchResults = []; isSearching = false; return }
         isSearching = true
         let pub = publication
-        let cached = bookText
         searchTask = Task {
-            let texts: [String]
-            if let cached { texts = cached } else {
-                texts = await Task.detached(priority: .userInitiated) { TextExtractor.texts(for: pub) }.value
-                bookText = texts
-            }
+            let texts = await bookTexts()
+            guard !Task.isCancelled else { return }
+            let lowered = await loweredBookTexts(texts)
             guard !Task.isCancelled else { return }
             let results = await Task.detached(priority: .userInitiated) {
-                TextExtractor.search(q, in: texts, publication: pub)
+                TextExtractor.search(q, in: texts, lowered: lowered, publication: pub)
             }.value
             guard !Task.isCancelled else { return }
             searchResults = results

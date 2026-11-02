@@ -48,11 +48,17 @@ struct Publication: Codable, Sendable {
 
     /// Whole-book progress (0…1) for a position inside the spine.
     func progress(spineIndex: Int, progression: Double) -> Double {
-        guard !spine.isEmpty else { return 0 }
+        progressCalculator(spineIndex: spineIndex)(progression)
+    }
+
+    /// `progress(spineIndex:progression:)` for many positions in one spine item.
+    func progressCalculator(spineIndex: Int) -> (Double) -> Double {
+        guard !spine.isEmpty else { return { _ in 0 } }
         let i = min(max(0, spineIndex), spine.count - 1)
-        let before = spine[..<i].reduce(0) { $0 + max(1, $1.weight) }
-        let current = Double(max(1, spine[i].weight)) * min(max(progression, 0), 1)
-        return (Double(before) + current) / Double(totalWeight)
+        let before = Double(spine[..<i].reduce(0) { $0 + max(1, $1.weight) })
+        let weight = Double(max(1, spine[i].weight))
+        let total = Double(totalWeight)
+        return { (before + weight * min(max($0, 0), 1)) / total }
     }
 
     /// Inverse of `progress(spineIndex:progression:)`.

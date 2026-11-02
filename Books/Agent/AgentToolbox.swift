@@ -56,7 +56,7 @@ enum AgentSupport {
         let url = book.url
         return try await Task.detached(priority: .userInitiated) {
             let pub = try BookLoader.load(url, bookID: bookID)
-            return (pub, TextExtractor.texts(for: pub))
+            return (pub, TextExtractor.texts(for: pub, bookID: bookID))
         }.value
     }
 

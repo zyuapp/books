@@ -495,9 +495,7 @@ enum BookMetadata {
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        guard let data = try? p.runCollecting(out) else { return nil }
         return p.terminationStatus == 0 || !data.isEmpty ? data : nil
     }
 }

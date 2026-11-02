@@ -10,9 +10,7 @@ enum Archive {
         let errPipe = Pipe()
         process.standardError = errPipe
         process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let errData = try process.runCollecting(errPipe)
         guard process.terminationStatus == 0 else {
             let message = String(data: errData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "archive error"
@@ -38,6 +36,18 @@ enum Archive {
         return result.sorted {
             $0.path.localizedStandardCompare($1.path) == .orderedAscending
         }
+    }
+}
+
+extension Process {
+    /// Runs to exit and returns what the pipe received. `waitUntilExit` adds about 70 ms.
+    func runCollecting(_ pipe: Pipe) throws -> Data {
+        let exited = DispatchSemaphore(value: 0)
+        terminationHandler = { _ in exited.signal() }
+        try run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        exited.wait()
+        return data
     }
 }
 
