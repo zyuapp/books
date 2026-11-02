@@ -129,7 +129,7 @@ private struct NotesList: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Export")
+                .tooltip("Export")
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 10)

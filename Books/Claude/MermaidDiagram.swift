@@ -21,7 +21,7 @@ struct MermaidDiagram: View {
                 if !failed {
                     Button(showsSource ? "Show Diagram" : "Show Source") { showsSource.toggle() }
                     Button { enlarged = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .help("Enlarge Diagram")
+                        .tooltip("Enlarge Diagram")
                         .accessibilityLabel("Enlarge Diagram")
                 }
                 Button {
@@ -30,7 +30,7 @@ struct MermaidDiagram: View {
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }
-                .help("Copy Mermaid Source")
+                .tooltip("Copy Mermaid Source")
                 .accessibilityLabel("Copy Mermaid Source")
             }
             .buttonStyle(.plain)
@@ -48,7 +48,7 @@ struct MermaidDiagram: View {
                             ProgressView().controlSize(.small)
                         } else {
                             Color.clear.contentShape(Rectangle()).onTapGesture { enlarged = true }
-                                .help("Click to enlarge")
+                                .tooltip("Click to enlarge")
                         }
                     }
             }

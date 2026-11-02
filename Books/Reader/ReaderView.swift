@@ -230,7 +230,7 @@ private struct TopBar: View {
                         Image(systemName: "chevron.left").fontWeight(.semibold).frame(width: 18, height: 18)
                     }
                     .glassButtonStyle()
-                    .help("Back to Library (⇧⌘L)")
+                    .tooltip("Back to Library (⇧⌘L)")
                     .accessibilityLabel("Back to Library")
                     panelButton(.contents, symbol: "list.bullet", label: "Contents", shortcut: "⌥⌘T")
                     panelButton(.notes, symbol: "highlighter", label: "Highlights & Bookmarks", shortcut: "⌥⌘N")
@@ -261,7 +261,7 @@ private struct TopBar: View {
                         Image(systemName: "textformat.size").frame(width: 18, height: 18)
                     }
                     .glassButtonStyle()
-                    .help("Reading Settings (⌥⌘A)")
+                    .tooltip("Reading Settings (⌥⌘A)")
                     .accessibilityLabel("Reading Settings")
                     .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
                         ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable, reader: model)
@@ -274,7 +274,7 @@ private struct TopBar: View {
                             .contentTransition(.symbolEffect(.replace))
                     }
                     .glassButtonStyle()
-                    .help("Bookmark This Page (⌘D)")
+                    .tooltip("Bookmark This Page (⌘D)")
                     .accessibilityLabel("Bookmark")
 
                     Button {
@@ -284,7 +284,7 @@ private struct TopBar: View {
                     }
                     .glassButtonStyle()
                     .tint(model.showClaude ? Color(hex: "#C96442") : nil)
-                    .help("Ask Claude (⌘L)")
+                    .tooltip("Ask Claude (⌘L)")
                     .accessibilityLabel("Ask Claude")
                 }
             }
@@ -303,7 +303,7 @@ private struct TopBar: View {
         }
         .glassButtonStyle()
         .tint(model.panel == panel ? Color.accentColor : nil)
-        .help("\(label) (\(shortcut))")
+        .tooltip("\(label) (\(shortcut))")
         .accessibilityLabel(label)
     }
 }
@@ -363,7 +363,7 @@ private struct BottomBar: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .help(label)
+        .tooltip(label)
         .accessibilityLabel(label)
     }
 
@@ -395,7 +395,7 @@ private struct BackPill: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Undo Jump (⌘Z)")
+            .tooltip("Undo Jump (⌘Z)")
             Divider().frame(height: 16)
             Button { withAnimation { model.showBackPill = false } } label: {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
@@ -434,7 +434,7 @@ private struct SelectionBar: View {
                         .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .help(c == .underline ? "Underline" : "Highlight \(c.rawValue.capitalized)")
+                    .tooltip(c == .underline ? "Underline" : "Highlight \(c.rawValue.capitalized)")
                     .accessibilityLabel(c == .underline ? "Underline" : "Highlight \(c.rawValue)")
                 }
             }
@@ -463,7 +463,7 @@ private struct SelectionBar: View {
             .buttonStyle(.plain)
             .padding(.leading, 6)
             .padding(.trailing, 4)
-            .help("Ask Claude about this passage (⌘L). Right-click for quick actions.")
+            .tooltip("Ask Claude about this passage (⌘L). Right-click for quick actions.")
             .contextMenu {
                 ForEach(ClaudeQuickAction.allCases) { a in
                     Button(a.title, systemImage: a.symbol) { model.askClaude(action: a) }
@@ -682,5 +682,136 @@ extension FocusedValues {
     var readerModel: ReaderModel? {
         get { self[ReaderModelKey.self] }
         set { self[ReaderModelKey.self] = newValue }
+    }
+}
+
+// MARK: Tooltips
+
+extension View {
+    /// Shows `text` beneath the pointer after a short hover. `.help` doesn't show over the page.
+    func tooltip(_ text: String) -> some View {
+        background(TooltipAnchor(text: text)).accessibilityHint(text)
+    }
+}
+
+private struct TooltipAnchor: NSViewRepresentable {
+    let text: String
+    func makeNSView(context: Context) -> TooltipAnchorView { TooltipAnchorView() }
+    func updateNSView(_ view: TooltipAnchorView, context: Context) { view.text = text }
+}
+
+private final class TooltipAnchorView: NSView {
+    var text = ""
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        guard trackingAreas.isEmpty else { return }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { TooltipPresenter.shared.hover(self) }
+    override func mouseExited(with event: NSEvent) { TooltipPresenter.shared.leave(self) }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil { TooltipPresenter.shared.leave(self) }
+    }
+}
+
+@MainActor
+private final class TooltipPresenter {
+    static let shared = TooltipPresenter()
+
+    private static let delay: TimeInterval = 0.25
+    /// Moving to another control this soon after a tooltip closed shows the next one at once.
+    private static let followOnWindow: TimeInterval = 0.5
+    /// Keeps the bubble clear of the cursor image, which extends below the pointer's hot spot.
+    private static let cursorClearance: CGFloat = 20
+    private static let gapAbovePointer: CGFloat = 6
+    private static let screenMargin: CGFloat = 4
+
+    private let panel: NSPanel
+    private let label = NSTextField(wrappingLabelWithString: "")
+    private weak var anchor: TooltipAnchorView?
+    private var pending: DispatchWorkItem?
+    private var closedAt = Date.distantPast
+
+    private init() {
+        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = true
+        panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
+
+        let bubble = NSVisualEffectView()
+        bubble.material = .toolTip
+        bubble.state = .active
+        bubble.wantsLayer = true
+        bubble.layer?.cornerRadius = 6
+        bubble.layer?.masksToBounds = true
+        panel.contentView = bubble
+
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .labelColor
+        label.preferredMaxLayoutWidth = 280
+        label.isSelectable = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        bubble.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 4),
+            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -4),
+        ])
+
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown, .scrollWheel]) { [weak self] event in
+            self?.close()
+            return event
+        }
+    }
+
+    func hover(_ view: TooltipAnchorView) {
+        close()
+        anchor = view
+        let work = DispatchWorkItem { [weak self] in self?.show() }
+        pending = work
+        let delay = Date().timeIntervalSince(closedAt) < Self.followOnWindow ? 0 : Self.delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func leave(_ view: TooltipAnchorView) {
+        if anchor === view { close() }
+    }
+
+    private func close() {
+        pending?.cancel()
+        pending = nil
+        anchor = nil
+        guard panel.isVisible else { return }
+        panel.parent?.removeChildWindow(panel)
+        panel.orderOut(nil)
+        closedAt = Date()
+    }
+
+    private func show() {
+        guard let anchor, let window = anchor.window, !anchor.text.isEmpty else { return }
+        label.stringValue = anchor.text
+        panel.appearance = window.effectiveAppearance
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let size = panel.contentView?.fittingSize ?? .zero
+        let pointer = NSEvent.mouseLocation
+        let screen = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+        let x = max(min(pointer.x, screen.maxX - size.width - Self.screenMargin), screen.minX + Self.screenMargin)
+        let below = pointer.y - Self.cursorClearance - size.height
+        let y = below >= screen.minY + Self.screenMargin ? below : pointer.y + Self.gapAbovePointer
+        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        window.addChildWindow(panel, ordered: .above)
+        panel.orderFront(nil)
     }
 }

@@ -543,7 +543,7 @@ enum LibraryTools {
 
     static let setStatus = AgentTool(
         name: "set_reading_status",
-        description: "Mark a book as unread (want to read), reading or finished.",
+        description: "Mark a book as unread, reading or finished.",
         kind: .change, progress: "Updating the book",
         parameters: [
             .init(name: "status", type: .string, description: "New status.", required: true, options: ReadingStatus.allCases.map(\.rawValue)),
@@ -554,7 +554,7 @@ enum LibraryTools {
         guard let status = args.string("status").flatMap(ReadingStatus.init(rawValue:)) else { throw ToolError.invalid("Unknown status.") }
         let old = AgentSupport.library.state(id).status
         AgentSupport.library.update(id) { $0.status = status; $0.statusUpdated = Date() }
-        let name = status == .unread ? "Want to Read" : status.rawValue.capitalized
+        let name = status.rawValue.capitalized
         let activity = AgentActivity(symbol: "checkmark.circle", title: "Marked \(AgentSupport.title(id)) as \(name)") {
             AgentSupport.library.update(id) { $0.status = old; $0.statusUpdated = Date() }
         }

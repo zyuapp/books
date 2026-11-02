@@ -91,6 +91,13 @@ final class PDFEngine: NSObject, ReaderEngine {
         pdfView.go(to: page)
         suppressJumpRecording = false
         pageChanged()
+        guard pdfView.isPaginated else { return }
+        let x = scrollPosition.x
+        scroll(to: positionAtPageTop(x: x))
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scroll(to: self.positionAtPageTop(x: x))
+        }
     }
 
     deinit {
@@ -306,11 +313,25 @@ final class PDFEngine: NSObject, ReaderEngine {
         forward ? pdfView.goToNextPage(nil) : pdfView.goToPreviousPage(nil)
         suppressJumpRecording = false
         guard pdfView.isPaginated else { return }
-        let top = CGPoint(x: leaving.x, y: 0)
-        let target = forward ? top : leftScrollPositions[currentPageIndex] ?? top
-        scroll(to: target)
+        let saved = forward ? nil : leftScrollPositions[currentPageIndex]
+        scroll(to: saved ?? positionAtPageTop(x: leaving.x))
         // PDFKit can restore its own offset once it lays out the new page.
-        DispatchQueue.main.async { [weak self] in self?.scroll(to: target) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scroll(to: saved ?? self.positionAtPageTop(x: leaving.x))
+        }
+    }
+
+    /// The `scrollPosition` that puts the top of the current page just below the reader's top bar.
+    private func positionAtPageTop(x: CGFloat) -> CGPoint {
+        guard let page = pdfView.currentPage, let doc = pdfView.documentView,
+              let clip = doc.enclosingScrollView?.contentView else { return CGPoint(x: x, y: 0) }
+        let range = doc.frame.height - clip.bounds.height
+        guard range > 0 else { return CGPoint(x: x, y: 0) }
+        let rect = doc.convert(pdfView.convert(page.bounds(for: pdfView.displayBox), from: page), from: pdfView)
+        let pageTop = doc.isFlipped ? rect.minY : doc.bounds.maxY - rect.maxY
+        let margin = Self.edgeInsets.top / max(pdfView.scaleFactor, 0.1)
+        return CGPoint(x: x, y: min(max((pageTop - margin) / range, 0), 1))
     }
 
     /// How far a page larger than the window is scrolled: 0 to 1 from the left and from the top, margins included.

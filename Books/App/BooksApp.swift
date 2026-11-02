@@ -77,7 +77,7 @@ final class OpenBridge {
     func attach(_ action: OpenWindowAction) { openWindow = action }
 
     func openBook(_ id: String) {
-        withAnimation(.smooth(duration: 0.35)) { AppNavigation.shared.bookID = id }
+        switchScreen(to: id)
         openLibrary()
     }
 
@@ -92,8 +92,19 @@ final class OpenBridge {
 
     func showLibrary() {
         LibraryStore.shared.flushAll()
-        withAnimation(.smooth(duration: 0.35)) { AppNavigation.shared.bookID = nil }
+        switchScreen(to: nil)
     }
+
+    private func switchScreen(to id: String?) {
+        var transaction = Transaction(animation: .smooth(duration: 0.35))
+        transaction[SwitchingScreen.self] = true
+        withTransaction(transaction) { AppNavigation.shared.bookID = id }
+    }
+}
+
+/// Marks the cross-fade between the library and a book, so layout inside each side doesn't animate with it.
+private struct SwitchingScreen: TransactionKey {
+    static let defaultValue = false
 }
 
 /// The main window: the library, or the book being read.
@@ -106,9 +117,11 @@ struct RootView: View {
             if let id = nav.bookID {
                 ReaderWindow(bookID: id)
                     .id(id)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transaction { if $0[SwitchingScreen.self] { $0.animation = nil } }
+                    .transition(.opacity)
             } else {
                 LibraryView()
+                    .transaction { if $0[SwitchingScreen.self] { $0.animation = nil } }
                     .transition(.opacity)
             }
         }
@@ -116,7 +129,7 @@ struct RootView: View {
             LibraryStore.shared.start()
             OpenBridge.shared.attach(openWindow)
         }
-        .background(FullScreenEnabler())
+        .background(MainWindowSetup())
         // SwiftUI routes Finder "Open" events here once a window exists.
         .onOpenURL { url in
             if url.isFileURL { AppActions.open(url) }
@@ -288,15 +301,21 @@ struct BooksCommands: Commands {
     }
 }
 
-/// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default).
-private struct FullScreenEnabler: NSViewRepresentable {
+/// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default) and removes its title bar line.
+private struct MainWindowSetup: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { view.window?.collectionBehavior.insert(.fullScreenPrimary) }
+        DispatchQueue.main.async { configure(view.window) }
         return view
     }
     func updateNSView(_ view: NSView, context: Context) {
-        view.window?.collectionBehavior.insert(.fullScreenPrimary)
+        configure(view.window)
+    }
+    private func configure(_ window: NSWindow?) {
+        window?.collectionBehavior.insert(.fullScreenPrimary)
+        // The reader hides the toolbar and the library shows it; the title bar's line flashes at each switch.
+        window?.titlebarSeparatorStyle = .none
+        window?.titlebarAppearsTransparent = true
     }
 }
 

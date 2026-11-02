@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum LibrarySection: Hashable {
-    case home, all, wantToRead, reading, finished
+    case home, all, reading, finished
     case books, pdfs, comics, documents
     case collection(String)
 
@@ -11,7 +11,6 @@ enum LibrarySection: Hashable {
         switch self {
         case .home: "Home"
         case .all: "All Books"
-        case .wantToRead: "Want to Read"
         case .reading: "Reading"
         case .finished: "Finished"
         case .books: "Books"
@@ -26,7 +25,6 @@ enum LibrarySection: Hashable {
         switch self {
         case .home: "house"
         case .all: "books.vertical"
-        case .wantToRead: "bookmark"
         case .reading: "book"
         case .finished: "checkmark.circle"
         case .books: "book.closed"
@@ -75,6 +73,8 @@ struct LibraryView: View {
         .searchable(text: $query, isPresented: $searchPresented, placement: .toolbar, prompt: "Title, author or format")
         .onChange(of: searchFocus.requested) { _, _ in searchPresented = true }
         .toolbar { toolbar }
+        // The toolbar's material shows as a bright band while the reader fades out.
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .onAppear {
             library.start()
         }
@@ -120,7 +120,7 @@ struct LibraryView: View {
     private var sidebar: some View {
         List(selection: $section) {
             Section("Library") {
-                ForEach([LibrarySection.home, .all, .wantToRead, .reading, .finished], id: \.self) { s in
+                ForEach([LibrarySection.home, .all, .reading, .finished], id: \.self) { s in
                     Label(s.title, systemImage: s.symbol).tag(s)
                 }
             }
@@ -158,7 +158,6 @@ struct LibraryView: View {
         let state = library.state(book.id)
         switch s {
         case .home, .all: return true
-        case .wantToRead: return state.status == .unread
         case .reading: return state.status == .reading
         case .finished: return state.status == .finished
         case .books: return [.epub, .mobi, .azw3, .fb2].contains(book.format)
@@ -438,7 +437,6 @@ private struct HomeView: View {
             .filter { library.state($0.id).status == .reading }
             .sorted { (library.state($0.id).lastOpened ?? .distantPast) > (library.state($1.id).lastOpened ?? .distantPast) }
         let recentlyAdded = library.books.sorted { library.state($0.id).added > library.state($1.id).added }.prefix(14)
-        let wantToRead = library.books.filter { library.state($0.id).status == .unread }.prefix(14)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 36) {
@@ -448,9 +446,6 @@ private struct HomeView: View {
                 }
                 if reading.count > 1 {
                     Shelf(title: "Continue Reading", books: Array(reading.dropFirst().prefix(14)), open: open, menu: menu)
-                }
-                if !wantToRead.isEmpty {
-                    Shelf(title: "Want to Read", books: Array(wantToRead), open: open, menu: menu)
                 }
                 Shelf(title: "Recently Added", books: Array(recentlyAdded), open: open, menu: menu)
             }

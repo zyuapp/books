@@ -496,7 +496,7 @@ struct ClaudePanel: View {
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Claude model")
+                .tooltip("Claude model")
 
                 Menu {
                     Picker("Effort", selection: $chat.effort) {
@@ -512,7 +512,7 @@ struct ClaudePanel: View {
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("How hard Claude thinks")
+                .tooltip("How hard Claude thinks")
 
                 Spacer()
 
@@ -523,7 +523,7 @@ struct ClaudePanel: View {
                             .background(Circle().fill(.primary.opacity(0.12)))
                     }
                     .buttonStyle(.plain)
-                    .help("Stop")
+                    .tooltip("Stop")
                     .accessibilityLabel("Stop")
                 } else {
                     let empty = chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -535,7 +535,7 @@ struct ClaudePanel: View {
                     .buttonStyle(.plain)
                     .disabled(empty)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .help("Send (↩)")
+                    .tooltip("Send (↩)")
                     .accessibilityLabel("Send")
                 }
             }
@@ -644,7 +644,7 @@ private struct PanelIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(label)
+        .tooltip(label)
         .accessibilityLabel(label)
     }
 }
@@ -718,7 +718,7 @@ private struct HistoryRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Delete Conversation")
+            .tooltip("Delete Conversation")
             .accessibilityLabel("Delete conversation")
         }
         .padding(10)
