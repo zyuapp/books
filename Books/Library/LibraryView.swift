@@ -58,23 +58,32 @@ struct LibraryView: View {
     @AppStorage("coverSize") private var coverSize: Double = 150
     @State private var newCollection: String?
     @State private var isDropTarget = false
-    @State private var searchPresented = false
+    @State private var showSidebar = true
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 230
+    @FocusState private var searchFocused: Bool
     @State private var searchFocus = LibrarySearchFocus.shared
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
-        } detail: {
+        HStack(spacing: 0) {
+            if showSidebar {
+                sidebar
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                    .padding(.top, HeaderBar<EmptyView, EmptyView>.height + 12)
+                    .frame(width: sidebarWidth)
+                    .background(Color.primary.opacity(0.05))
+                    .background(Color(nsColor: .windowBackgroundColor))
+                SidebarDivider(width: $sidebarWidth)
+            }
             detail
+                .padding(.top, HeaderBar<EmptyView, EmptyView>.height)
+                .frame(maxWidth: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
                 .navigationTitle(section?.title ?? "Library")
-                .navigationSubtitle(subtitle)
         }
-        .searchable(text: $query, isPresented: $searchPresented, placement: .toolbar, prompt: "Title, author or format")
-        .onChange(of: searchFocus.requested) { _, _ in searchPresented = true }
-        .toolbar { toolbar }
-        // The toolbar's material shows as a bright band while the reader fades out.
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .overlay(alignment: .top) { header }
+        .ignoresSafeArea(edges: .top)
+        .onChange(of: searchFocus.requested) { _, _ in searchFocused = true }
         .onAppear {
             library.start()
         }
@@ -221,7 +230,6 @@ struct LibraryView: View {
                 .padding(.horizontal, 30)
                 .padding(.vertical, 24)
             }
-            .softScrollEdges(.top)
             .overlay {
                 if filtered.isEmpty {
                     ContentUnavailableView(query.isEmpty ? "Nothing Here Yet" : "No Results",
@@ -266,30 +274,30 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: Toolbar
+    // MARK: Header
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                Picker("Sort By", selection: $sort) {
-                    ForEach(LibrarySort.allCases) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.inline)
-                Divider()
-                Picker("Cover Size", selection: $coverSize) {
-                    Text("Small").tag(120.0)
-                    Text("Medium").tag(150.0)
-                    Text("Large").tag(190.0)
-                }
-                .pickerStyle(.inline)
+    private var header: some View {
+        HeaderBar(title: section?.title ?? "Library", subtitle: subtitle) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) { showSidebar.toggle() }
             } label: {
-                Label("View Options", systemImage: "line.3.horizontal.decrease")
+                Image(systemName: "sidebar.leading").frame(width: 18, height: 18)
             }
-            Button(action: addBooks) {
-                Label("Add Books", systemImage: "plus")
+            .glassButtonStyle()
+            .help("Hide or show the sidebar")
+            .accessibilityLabel("Toggle Sidebar")
+            // At the sidebar's far edge while it shows.
+            .frame(width: showSidebar ? max(44, sidebarWidth - HeaderBar<EmptyView, EmptyView>.leadingInset - 14) : nil, alignment: .trailing)
+        } trailing: {
+            HStack(spacing: 10) {
+                HeaderSearchField(prompt: "Title, author or format", text: $query, focus: $searchFocused)
+                Button(action: addBooks) {
+                    Image(systemName: "plus").frame(width: 18, height: 18)
+                }
+                .glassButtonStyle()
+                .help("Add books to your library (⇧⌘O)")
+                .accessibilityLabel("Add Books")
             }
-            .help("Add books to your library (⇧⌘O)")
         }
     }
 
@@ -451,7 +459,6 @@ private struct HomeView: View {
             }
             .padding(.vertical, 24)
         }
-        .softScrollEdges(.top)
     }
 }
 
@@ -532,5 +539,28 @@ private struct Shelf: View {
                 }
             }
         }
+    }
+}
+
+/// The line between the sidebar and the content; drag it to resize the sidebar.
+private struct SidebarDivider: View {
+    @Binding var width: Double
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                    .gesture(DragGesture(minimumDistance: 1).onChanged { drag in
+                        let start = startWidth ?? width
+                        startWidth = start
+                        width = min(300, max(200, start + drag.translation.width))
+                    }.onEnded { _ in startWidth = nil })
+            }
     }
 }

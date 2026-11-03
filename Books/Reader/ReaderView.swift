@@ -36,6 +36,7 @@ struct ReaderView: View {
     }
 
     private var theme: ReaderTheme { settings.prefs.theme.resolved(dark: colorScheme == .dark) }
+    private var chromeShown: Bool { model.chromeVisible || model.panel != nil || model.showClaude }
 
     var body: some View {
         ZStack {
@@ -43,13 +44,11 @@ struct ReaderView: View {
             content
                 .ignoresSafeArea()
             overlays
+                .ignoresSafeArea(edges: .top)
         }
         .frame(minWidth: 640, minHeight: 520)
-        .preferredColorScheme(settings.prefs.theme == .auto ? nil : (theme.isDark ? .dark : .light))
         .navigationTitle(model.title)
-        .toolbar(removing: .title)
-        .toolbar(.hidden, for: .windowToolbar)
-        .background(WindowChrome(model: model, visible: model.chromeVisible || model.panel != nil || model.showClaude))
+        .background(WindowChrome(model: model, visible: chromeShown))
         .focusedSceneValue(\.readerModel, model)
         .task { await model.load() }
         .onDisappear { LibraryStore.shared.flushAll() }
@@ -92,18 +91,17 @@ struct ReaderView: View {
             ZStack {
                 VStack(spacing: 0) {
                     ZStack {
-                        if model.chromeVisible || model.panel != nil || model.showClaude {
+                        if chromeShown {
                             TopBar(model: model, theme: theme)
                                 .transition(.opacity.combined(with: .offset(y: -12)))
                         }
                     }
-                    .frame(height: 52)
+                    .frame(height: HeaderBar<EmptyView, EmptyView>.height)
                     .frame(maxWidth: .infinity)
                     .background {
                         // Keeps zoomed-in page text from showing through the title.
-                        if model.zoomPercent != nil && (model.chromeVisible || model.panel != nil || model.showClaude) {
+                        if model.zoomPercent != nil && chromeShown {
                             theme.backgroundColor
-                                .ignoresSafeArea(edges: .top)
                                 .allowsHitTesting(false)
                                 .transition(.opacity)
                         }
@@ -220,10 +218,9 @@ struct ReaderView: View {
 private struct TopBar: View {
     let model: ReaderModel
     let theme: ReaderTheme
-    @State private var settings = ReaderSettings.shared
 
     var body: some View {
-        HStack(spacing: 12) {
+        HeaderBar(title: model.title, subtitle: chapter, serif: true, titleColor: theme.foregroundColor.opacity(0.85)) {
             GlassGroup(spacing: 8) {
                 HStack(spacing: 6) {
                     Button { OpenBridge.shared.showLibrary() } label: {
@@ -238,23 +235,7 @@ private struct TopBar: View {
                 }
             }
             .readerOverlay()
-            .padding(.leading, 78)
-
-            Spacer(minLength: 12)
-
-            VStack(spacing: 1) {
-                Text(model.title)
-                    .font(.system(.headline, design: .serif))
-                    .lineLimit(1)
-                if let chapter = model.chapterTitle, chapter != model.title {
-                    Text(chapter).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .foregroundStyle(theme.foregroundColor.opacity(0.85))
-            .frame(maxWidth: 420)
-
-            Spacer(minLength: 12)
-
+        } trailing: {
             GlassGroup(spacing: 8) {
                 HStack(spacing: 6) {
                     Button { model.showSettings.toggle() } label: {
@@ -289,10 +270,12 @@ private struct TopBar: View {
                 }
             }
             .readerOverlay()
-            .padding(.trailing, 14)
         }
-        .controlSize(.large)
-        .frame(height: 52)
+    }
+
+    private var chapter: String? {
+        guard let chapter = model.chapterTitle, chapter != model.title else { return nil }
+        return chapter
     }
 
     private func panelButton(_ panel: ReaderPanel, symbol: String, label: String, shortcut: String) -> some View {
@@ -617,14 +600,10 @@ private struct WindowChrome: NSViewRepresentable {
             guard self.window !== window else { return }
             detach()
             self.window = window
-            window.styleMask.insert(.fullSizeContentView)
             window.acceptsMouseMovedEvents = true
             model.isFullScreen = window.styleMask.contains(.fullScreen)
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved, .leftMouseDown]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow else { return event }
-                if event.type == .leftMouseDown {
-                    return self.handleTitleBarDoubleClick(event, in: window) ? nil : event
-                }
                 if event.type == .mouseMoved {
                     if self.model.isFullScreen, let content = window.contentView {
                         let y = event.locationInWindow.y
@@ -642,22 +621,6 @@ private struct WindowChrome: NSViewRepresentable {
             }
         }
 
-        /// The reader hides the title bar, so a double-click on the top strip (outside its buttons) does what the
-        /// system title bar would: fill the screen by default, or follow "Double-click a window's title bar".
-        private func handleTitleBarDoubleClick(_ event: NSEvent, in window: NSWindow) -> Bool {
-            guard event.clickCount == 2, !window.styleMask.contains(.fullScreen),
-                  let content = window.contentView else { return false }
-            let p = event.locationInWindow
-            guard p.y > content.bounds.height - 52 else { return false }
-            let top = CGPoint(x: p.x, y: content.bounds.height - p.y)
-            if model.overlayRects.contains(where: { $0.insetBy(dx: -4, dy: -4).contains(top) }) { return false }
-            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-            case "None": return true
-            case "Minimize": window.miniaturize(nil)
-            default: window.zoom(nil)
-            }
-            return true
-        }
 
         func detach() {
             if let monitor { NSEvent.removeMonitor(monitor) }

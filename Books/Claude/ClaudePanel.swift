@@ -432,44 +432,79 @@ struct ClaudePanel: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        let hasPassage = chat.thread?.passage != nil
-        return VStack(alignment: .leading, spacing: 14) {
+        if chat.thread?.passage != nil {
+            passagePrompts
+        } else {
+            bookIntro
+        }
+    }
+
+    private var bookIntro: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Chat with Claude about anything in this book")
+                    .font(.system(size: 26, weight: .semibold))
+                Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
+                    .font(.title3).foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            quickRow(symbol: "sparkles", title: "What can you do for me?") { chat.send("What can you do for me?") }
+        }
+        .padding(.top, 2)
+    }
+
+    private var passagePrompts: some View {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(hasPassage ? "What would you like to know?" : "Ask about \(reader.title)")
-                    .font(.system(.title3, design: .serif).weight(.semibold))
+                Text("What would you like to know?")
+                    .font(.title3.weight(.semibold))
                     .lineLimit(2)
-                Text(hasPassage ? "Pick a starting point or type your own question."
-                                : "Claude can see the page you’re on and look up the rest of the book.")
+                Text("Pick a starting point or type your own question.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             VStack(spacing: 6) {
-                ForEach(ClaudeQuickAction.allCases.filter { hasPassage || $0 != .define }) { action in
-                    Button { chat.send(action.prompt(hasPassage: hasPassage)) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: action.symbol)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(Self.accent)
-                                .frame(width: 28, height: 28)
-                                .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(action.title).font(.body.weight(.medium))
-                                Text(action.subtitle(hasPassage: hasPassage)).font(.callout).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
-                        }
-                        .padding(8)
-                        .contentShape(Rectangle())
+                ForEach(ClaudeQuickAction.allCases) { action in
+                    quickRow(symbol: action.symbol, title: action.title, subtitle: action.subtitle(hasPassage: true)) {
+                        chat.send(action.prompt(hasPassage: true))
                     }
-                    .buttonStyle(HoverRowStyle())
                 }
             }
         }
         .padding(.top, 2)
     }
 
+    private func quickRow(symbol: String, title: String, subtitle: String? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Self.accent)
+                    .frame(width: 28, height: 28)
+                    .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.body.weight(.medium))
+                    if let subtitle { Text(subtitle).font(.callout).foregroundStyle(.secondary) }
+                }
+                Spacer()
+                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HoverRowStyle())
+    }
+
     // MARK: Composer
+
+    /// A checkable menu row; the second text shows as the system's subtitle line.
+    private func menuOption(_ name: String, detail: String, selected: Bool, select: @escaping () -> Void) -> some View {
+        Toggle(isOn: Binding(get: { selected }, set: { if $0 { select() } })) {
+            Text(name)
+            Text(detail)
+        }
+    }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -483,12 +518,11 @@ struct ClaudePanel: View {
                 .accessibilityLabel("Question for Claude")
             HStack(spacing: 6) {
                 Menu {
-                    Picker("Model", selection: $chat.model) {
+                    Section("Model") {
                         ForEach(ClaudeModel.allCases) { m in
-                            Label { Text("\(m.name) — \(m.detail)") } icon: { Image(systemName: m.symbol) }.tag(m)
+                            menuOption(m.name, detail: m.detail, selected: chat.model == m) { chat.model = m }
                         }
                     }
-                    .pickerStyle(.inline)
                 } label: {
                     Chip(symbol: chat.model.symbol, title: chat.model.name)
                 }
@@ -499,12 +533,11 @@ struct ClaudePanel: View {
                 .tooltip("Claude model")
 
                 Menu {
-                    Picker("Effort", selection: $chat.effort) {
+                    Section("Effort") {
                         ForEach(ClaudeEffort.allCases) { e in
-                            Text("\(e.name) — \(e.detail)").tag(e)
+                            menuOption(e.name, detail: e.detail, selected: chat.effort == e) { chat.effort = e }
                         }
                     }
-                    .pickerStyle(.inline)
                 } label: {
                     Chip(symbol: "gauge.with.dots.needle.33percent", title: chat.effort.name)
                 }
@@ -654,14 +687,14 @@ private struct Chip: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold))
-            Text(title).font(.callout.weight(.medium))
-            Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold)).foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+            Text(title).font(.body.weight(.medium))
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 9)
-        .frame(height: 26)
-        .background(Capsule().fill(.primary.opacity(0.08)))
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Capsule().fill(.primary.opacity(0.1)))
         .contentShape(Capsule())
     }
 }
@@ -786,7 +819,7 @@ private struct MessageView: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.text)
-                    .font(.system(size: 13.5 * textSize / ChatTextSize.standard))
+                    .font(.system(size: 14.6 * textSize / ChatTextSize.standard))
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)

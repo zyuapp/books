@@ -14,6 +14,8 @@ struct BooksApp: App {
                 .frame(minWidth: 820, minHeight: 560)
         }
         .defaultSize(width: 1220, height: 800)
+        // Each screen draws its own `HeaderBar` where the title bar would be; the window keeps one shape for both.
+        .windowStyle(.hiddenTitleBar)
         .commands { BooksCommands() }
 
         Settings {
@@ -110,17 +112,28 @@ private struct SwitchingScreen: TransactionKey {
 /// The main window: the library, or the book being read.
 struct RootView: View {
     @State private var nav = AppNavigation.shared
+    @State private var settings = ReaderSettings.shared
     @Environment(\.openWindow) private var openWindow
 
+    @State private var system = SystemAppearance.shared
+
+    /// The reading theme's scheme while a book is open, the system's otherwise. Always explicit: SwiftUI keeps the
+    /// last scheme it was given when handed `nil`.
+    private var scheme: ColorScheme {
+        let theme = settings.prefs.theme
+        if nav.bookID != nil, theme != .auto { return theme.isDark ? .dark : .light }
+        return system.isDark ? .dark : .light
+    }
+
     var body: some View {
+        // The library stays underneath and the opaque reader fades over it; the library itself never fades.
         ZStack {
+            LibraryView()
+                .allowsHitTesting(nav.bookID == nil)
+                .accessibilityHidden(nav.bookID != nil)
             if let id = nav.bookID {
                 ReaderWindow(bookID: id)
                     .id(id)
-                    .transaction { if $0[SwitchingScreen.self] { $0.animation = nil } }
-                    .transition(.opacity)
-            } else {
-                LibraryView()
                     .transaction { if $0[SwitchingScreen.self] { $0.animation = nil } }
                     .transition(.opacity)
             }
@@ -129,6 +142,7 @@ struct RootView: View {
             LibraryStore.shared.start()
             OpenBridge.shared.attach(openWindow)
         }
+        .preferredColorScheme(scheme)
         .background(MainWindowSetup())
         // SwiftUI routes Finder "Open" events here once a window exists.
         .onOpenURL { url in
@@ -301,7 +315,26 @@ struct BooksCommands: Commands {
     }
 }
 
-/// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default) and removes its title bar line.
+/// The system appearance, as a value views can watch.
+@MainActor @Observable
+final class SystemAppearance {
+    static let shared = SystemAppearance()
+    private(set) var isDark: Bool
+    @ObservationIgnored private var observation: NSKeyValueObservation?
+
+    private init() {
+        isDark = Self.current
+        observation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            Task { @MainActor in self?.isDark = Self.current }
+        }
+    }
+
+    private static var current: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+}
+
+/// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default) and move by its background.
 private struct MainWindowSetup: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -312,10 +345,11 @@ private struct MainWindowSetup: NSViewRepresentable {
         configure(view.window)
     }
     private func configure(_ window: NSWindow?) {
-        window?.collectionBehavior.insert(.fullScreenPrimary)
-        // The reader hides the toolbar and the library shows it; the title bar's line flashes at each switch.
-        window?.titlebarSeparatorStyle = .none
-        window?.titlebarAppearsTransparent = true
+        guard let window else { return }
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.isMovableByWindowBackground = true
+        // Keyboard focus starts on nothing rather than on the library's search field.
+        if window.firstResponder is NSTextView, !window.isKeyWindow { window.makeFirstResponder(nil) }
     }
 }
 
