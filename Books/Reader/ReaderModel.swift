@@ -73,6 +73,8 @@ final class ReaderModel {
     private(set) var publication: Publication?
     private(set) var loadError: String?
     private(set) var isDownloading = false
+    /// True once the engine has the first page on screen at the reader's position.
+    var isContentReady = false
 
     private(set) var location: Locator
     var pageInChapter = 0
@@ -638,15 +640,6 @@ enum ClaudeQuickAction: String, CaseIterable, Identifiable {
         case .summarize: "text.append"
         case .define: "character.book.closed"
         case .discuss: "bubble.left.and.text.bubble.right"
-        }
-    }
-
-    func subtitle(hasPassage: Bool) -> String {
-        switch self {
-        case .explain: hasPassage ? "What it means and why it matters" : "What’s happening right now"
-        case .summarize: hasPassage ? "The passage in a few sentences" : "Catch up on this chapter"
-        case .define: "Key words, as used here"
-        case .discuss: "Themes, techniques and references"
         }
     }
 

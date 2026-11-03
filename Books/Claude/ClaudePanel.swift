@@ -24,6 +24,8 @@ final class ClaudeChat {
 
     /// Scroll offset per conversation while the book is open; absent means pinned to the bottom.
     @ObservationIgnored var scrollOffsets: [UUID: CGFloat] = [:]
+    /// Where the panel returns if the passage that replaced this conversation is never asked about.
+    @ObservationIgnored private var threadBeforePassage: ChatThread?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private weak var reader: ReaderModel?
 
@@ -33,12 +35,25 @@ final class ClaudeChat {
         effort = ClaudeEffort(rawValue: UserDefaults.standard.string(forKey: "claudeEffort") ?? "") ?? .low
     }
 
+    private var hasUnusedPassage: Bool {
+        guard let thread else { return false }
+        return thread.passage != nil && thread.messages.isEmpty
+    }
+
     func begin(with seed: ClaudeRequestSeed) {
         cancel()
+        if !hasUnusedPassage { threadBeforePassage = thread }
         thread = ChatThread(title: seed.passage.map(ChatThread.title(from:)) ?? (reader?.chapterTitle ?? "Question"),
                             passage: seed.passage, locator: seed.locator)
         error = nil
         if let action = seed.action { send(action.prompt(hasPassage: seed.passage != nil)) }
+    }
+
+    /// Forgets a passage the reader opened the panel with but never asked about, returning to the previous conversation.
+    func dropUnusedPassage() {
+        guard hasUnusedPassage, input.isEmpty else { return }
+        thread = threadBeforePassage
+        threadBeforePassage = nil
     }
 
     func newThread() {
@@ -162,6 +177,7 @@ final class ClaudeChat {
             }
         }
         if thread?.id == t.id { thread = nil }
+        if threadBeforePassage?.id == t.id { threadBeforePassage = nil }
     }
 
     /// Deletes every conversation about the open book.
@@ -175,6 +191,7 @@ final class ClaudeChat {
             }
         }
         thread = nil
+        threadBeforePassage = nil
         error = nil
     }
 
@@ -304,7 +321,12 @@ struct ClaudePanel: View {
         }
         .onChange(of: inputFocused) { _, f in reader.claudeInputFocused = f }
         .onAppear {
-            if let seed = reader.claudeDraft { chat.begin(with: seed); reader.claudeDraft = nil }
+            if let seed = reader.claudeDraft {
+                chat.begin(with: seed)
+                reader.claudeDraft = nil
+            } else {
+                chat.dropUnusedPassage()
+            }
             if reader.claudeNewThreadRequested { startNewThread() }
             focusInput()
         }
@@ -432,61 +454,29 @@ struct ClaudePanel: View {
         }
     }
 
-    @ViewBuilder
     private var emptyState: some View {
-        if chat.thread?.passage != nil {
-            passagePrompts
-        } else {
-            bookIntro
-        }
-    }
-
-    private var bookIntro: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Chat with Claude about anything in this book")
+                Text(chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
                     .font(.system(size: 26, weight: .semibold))
                 Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
                     .font(.title3).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-            quickRow(symbol: "sparkles", title: "What can you do for me?") { chat.send("What can you do for me?") }
+            capabilitiesRow
         }
         .padding(.top, 2)
     }
 
-    private var passagePrompts: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("What would you like to know?")
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(2)
-                Text("Pick a starting point or type your own question.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            VStack(spacing: 6) {
-                ForEach(ClaudeQuickAction.allCases) { action in
-                    quickRow(symbol: action.symbol, title: action.title, subtitle: action.subtitle(hasPassage: true)) {
-                        chat.send(action.prompt(hasPassage: true))
-                    }
-                }
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    private func quickRow(symbol: String, title: String, subtitle: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private var capabilitiesRow: some View {
+        Button { chat.send("What can you do for me?") } label: {
             HStack(spacing: 10) {
-                Image(systemName: symbol)
+                Image(systemName: "sparkles")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Self.accent)
                     .frame(width: 28, height: 28)
                     .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.body.weight(.medium))
-                    if let subtitle { Text(subtitle).font(.callout).foregroundStyle(.secondary) }
-                }
+                Text("What can you do for me?").font(.body.weight(.medium))
                 Spacer()
                 Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }

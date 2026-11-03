@@ -292,6 +292,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
                 run("Reader.find(\(Self.json(find.query)), \(find.occurrence))")
                 pendingFind = nil
             }
+            model.isContentReady = true
             if webView.alphaValue < 1 {
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = 0.22
@@ -352,6 +353,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
 
     private func loadFailed() {
         webView.alphaValue = 1
+        model?.isContentReady = true
         resumeReadyWaiters()
     }
 

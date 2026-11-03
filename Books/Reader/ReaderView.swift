@@ -30,7 +30,6 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var colorScheme
     /// Engines and panels wait for the screen fade: building them during it drops frames.
     @State private var contentMounted = false
-    @State private var spinnerDue = false
 
     init(book: BookRecord) {
         let m = ReaderModel(book: book)
@@ -46,6 +45,11 @@ struct ReaderView: View {
             theme.backgroundColor.ignoresSafeArea()
             content
                 .ignoresSafeArea()
+            if !model.isContentReady && model.loadError == nil {
+                loadingCover
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
             overlays
                 .ignoresSafeArea(edges: .top)
         }
@@ -58,10 +62,8 @@ struct ReaderView: View {
             await AppNavigation.shared.settled()
             contentMounted = true
         }
-        .task {
-            try? await Task.sleep(for: .milliseconds(400))
-            spinnerDue = true
-        }
+        .animation(Motion.popup, value: model.isContentReady)
+        .animation(Motion.popup, value: contentMounted)
         .onDisappear { LibraryStore.shared.saveAllInBackground() }
         .sheet(item: $model.noteEditor) { h in
             NoteEditor(highlight: h) { note in
@@ -90,11 +92,20 @@ struct ReaderView: View {
                 Text(error)
             }
             .foregroundStyle(theme.foregroundColor)
-        } else if spinnerDue {
-            VStack(spacing: 14) {
-                ProgressView().controlSize(.large)
-                Text(model.isDownloading ? "Downloading from iCloud…" : "Opening…")
-                    .font(.callout).foregroundStyle(theme.secondaryColor)
+        }
+    }
+
+    /// Hides the engine until its first page is placed and rendered.
+    private var loadingCover: some View {
+        ZStack {
+            theme.backgroundColor
+            if contentMounted {
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large)
+                    Text(model.isDownloading ? "Downloading from iCloud…" : "Opening…")
+                        .font(.callout).foregroundStyle(theme.secondaryColor)
+                }
+                .transition(.opacity)
             }
         }
     }

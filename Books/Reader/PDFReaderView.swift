@@ -36,6 +36,10 @@ final class PDFEngine: NSObject, ReaderEngine {
     private var observers: [NSObjectProtocol] = []
     private var suppressJumpRecording = false
     private var pageToRestore: Int?
+    private var isPositioned = false
+    private var targetPageDrew = false
+    /// Longest the loading cover waits on a slow page.
+    private static let revealTimeout: Duration = .seconds(2)
     var isDark = false
     var lastPrefs: ReaderPreferences?
     /// Per-book zoom, kept on this Mac only because the right scale depends on the screen.
@@ -77,26 +81,59 @@ final class PDFEngine: NSObject, ReaderEngine {
         observers.append(center.addObserver(forName: .PDFViewSelectionChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.selectionChanged() }
         })
-        pageToRestore = model?.restoreTarget().index ?? 0
+        let target = model?.restoreTarget().index ?? 0
+        pageToRestore = target
+        watchFirstDraw(ofPage: target)
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.revealTimeout)
+            self?.model?.isContentReady = true
+        }
         DispatchQueue.main.async { [weak self] in self?.restorePageIfSized() }
+    }
+
+    private func watchFirstDraw(ofPage index: Int) {
+        guard let document, let page = document.page(at: min(index, max(0, document.pageCount - 1))) as? DimmablePDFPage else {
+            targetPageDrew = true
+            return
+        }
+        page.onDraw = { [weak self] in
+            Task { @MainActor in
+                guard let self, !self.targetPageDrew else { return }
+                self.targetPageDrew = true
+                self.revealIfRendered()
+            }
+        }
+    }
+
+    private func positioned() {
+        isPositioned = true
+        revealIfRendered()
+    }
+
+    private func revealIfRendered() {
+        if isPositioned && targetPageDrew { model?.isContentReady = true }
     }
 
     /// PDFKit places a page for the view's current size and doesn't place it again after the first layout.
     private func restorePageIfSized() {
         guard let target = pageToRestore, pdfView.bounds.width > 0, pdfView.bounds.height > 0 else { return }
         pageToRestore = nil
-        guard let document, let page = document.page(at: min(target, max(0, document.pageCount - 1))) else { return }
+        guard let document, let page = document.page(at: min(target, max(0, document.pageCount - 1))) else {
+            model?.isContentReady = true
+            return
+        }
         restoreZoom()
         suppressJumpRecording = true
         pdfView.go(to: page)
         suppressJumpRecording = false
         pageChanged()
-        guard pdfView.isPaginated else { return }
+        guard pdfView.isPaginated else { return positioned() }
         let x = scrollPosition.x
         scroll(to: positionAtPageTop(x: x))
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.scroll(to: self.positionAtPageTop(x: x))
+            self.positioned()
         }
     }
 
@@ -475,8 +512,11 @@ extension PDFEngine: PDFDocumentDelegate {
 /// the engine's difference overlay turns it back into the dark page.
 nonisolated final class DimmablePDFPage: PDFPage, @unchecked Sendable {
     var isDimmed = false
+    /// Called after each draw, on PDFKit's rendering thread. Set before the page is first displayed.
+    var onDraw: (@Sendable () -> Void)?
 
     override func draw(with box: PDFDisplayBox, to context: CGContext) {
+        defer { onDraw?() }
         guard isDimmed else { return super.draw(with: box, to: context) }
         let rect = bounds(for: box)
         context.saveGState()

@@ -74,7 +74,10 @@ final class ComicEngine: ReaderEngine {
     func currentSectionText() async -> String { "" }
     func currentPageText() async -> String { "" }
     func currentSnippet() async -> String { "Page \(index + 1)" }
-    func start() { moved() }
+    func start() {
+        moved()
+        model?.isContentReady = true
+    }
     func focusContent() { NSApp.keyWindow?.makeFirstResponder(nil) }
 }
 
