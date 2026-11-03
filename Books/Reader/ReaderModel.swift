@@ -93,7 +93,7 @@ final class ReaderModel {
     var isFullScreen = false {
         didSet {
             guard isFullScreen != oldValue else { return }
-            withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = true }
+            withAnimation(Motion.popup) { chromeVisible = true }
             if isFullScreen { scheduleChromeHide() } else { chromeTask?.cancel() }
         }
     }
@@ -171,6 +171,8 @@ final class ReaderModel {
             let pub = try await Task.detached(priority: .userInitiated) { try BookLoader.load(url, bookID: id) }.value
             publication = pub
             if location.index >= pub.spine.count { location = Locator(index: 0) }
+            // Re-sorts the library underneath, so it waits for the fade.
+            await AppNavigation.shared.settled()
             library.update(book.id) { s in
                 s.lastOpened = Date()
                 s.title = s.title ?? pub.title
@@ -302,12 +304,12 @@ final class ReaderModel {
     }
 
     private func flashBackPill() {
-        withAnimation(.spring(duration: 0.35)) { showBackPill = true }
+        withAnimation(Motion.popup) { showBackPill = true }
         pillTask?.cancel()
         pillTask = Task {
             try? await Task.sleep(for: .seconds(12))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) { showBackPill = false }
+            withAnimation(Motion.popup) { showBackPill = false }
         }
     }
 
@@ -326,7 +328,7 @@ final class ReaderModel {
 
     func pokeChrome() {
         guard Date().timeIntervalSince(chromeHiddenByTap) > 0.8 else { return }
-        if !chromeVisible { withAnimation(.easeOut(duration: 0.25)) { chromeVisible = true } }
+        if !chromeVisible { withAnimation(Motion.popup) { chromeVisible = true } }
         scheduleChromeHide()
     }
 
@@ -342,7 +344,7 @@ final class ReaderModel {
         if chromeVisible {
             chromeTask?.cancel()
             chromeHiddenByTap = Date()
-            withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = false }
+            withAnimation(Motion.popup) { chromeVisible = false }
         } else {
             pokeChrome()
         }
@@ -354,7 +356,7 @@ final class ReaderModel {
         chromeTask = Task {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled, isFullScreen, panel == nil, !showClaude, !showSettings, selection == nil else { return }
-            withAnimation(.easeInOut(duration: 0.45)) { chromeVisible = false }
+            withAnimation(Motion.popup) { chromeVisible = false }
         }
     }
 
@@ -419,9 +421,9 @@ final class ReaderModel {
         } else if showSettings {
             showSettings = false
         } else if showClaude && claudeShowsHistory {
-            withAnimation(.smooth(duration: 0.3)) { claudeShowsHistory = false }
+            withAnimation(Motion.panel) { claudeShowsHistory = false }
         } else if showClaude || panel != nil {
-            withAnimation(.spring(duration: 0.35)) { showClaude = false; panel = nil }
+            withAnimation(Motion.panel) { showClaude = false; panel = nil }
         } else if let window, window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         } else {
@@ -549,7 +551,7 @@ final class ReaderModel {
         }
         selection = nil
         engine?.clearSelection()
-        withAnimation(.spring(duration: 0.4)) { showClaude = true }
+        withAnimation(Motion.panel) { showClaude = true }
         claudeFocusRequest += 1
     }
 
@@ -558,7 +560,7 @@ final class ReaderModel {
         claudeNewThreadRequested = true
         selection = nil
         engine?.clearSelection()
-        withAnimation(.spring(duration: 0.4)) { showClaude = true }
+        withAnimation(Motion.panel) { showClaude = true }
         claudeFocusRequest += 1
     }
 

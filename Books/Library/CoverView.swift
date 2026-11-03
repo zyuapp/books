@@ -1,3 +1,5 @@
+import CoreImage
+import ImageIO
 import SwiftUI
 
 /// A book cover: the extracted thumbnail, or a typeset cover generated from the title.
@@ -32,6 +34,42 @@ struct CoverView: View {
     }
 }
 
+/// A soft colour wash taken from a book's cover. It's a small pre-blurred bitmap, which costs nothing to composite
+/// compared with a live blur re-rendered every frame.
+struct CoverWash: View {
+    let bookID: String
+    let title: String
+    @State private var library = LibraryStore.shared
+    @State private var wash: NSImage?
+
+    var body: some View {
+        ZStack {
+            let colors = GeneratedCover.palette(for: title)
+            LinearGradient(colors: [Color(hex: colors.0), Color(hex: colors.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let wash {
+                Image(nsImage: wash)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+            }
+        }
+        .task(id: "\(bookID)-\(library.coverVersion)") {
+            let file = library.coverFile(bookID)
+            wash = await Task.detached(priority: .utility) { Self.render(file) }.value
+        }
+    }
+
+    private nonisolated static func render(_ file: URL) -> NSImage? {
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 48] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        let input = CIImage(cgImage: thumbnail)
+        let blurred = input.clampedToExtent().applyingGaussianBlur(sigma: 6).cropped(to: input.extent)
+        guard let output = CIContext().createCGImage(blurred, from: input.extent) else { return nil }
+        return NSImage(cgImage: output, size: NSSize(width: output.width, height: output.height))
+    }
+}
+
 struct GeneratedCover: View {
     let title: String
     let author: String?
@@ -49,9 +87,13 @@ struct GeneratedCover: View {
         ("#2C5F5D", "#183B3A", "#DDF0EC"),
     ]
 
-    var body: some View {
+    static func palette(for title: String) -> (String, String, String) {
         let hash = title.unicodeScalars.reduce(5381) { ($0 << 5) &+ $0 &+ Int($1.value) }
-        let palette = Self.palettes[abs(hash) % Self.palettes.count]
+        return palettes[abs(hash) % palettes.count]
+    }
+
+    var body: some View {
+        let palette = Self.palette(for: title)
         GeometryReader { geo in
             let w = geo.size.width
             ZStack {

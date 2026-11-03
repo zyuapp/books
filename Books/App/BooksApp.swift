@@ -64,9 +64,33 @@ final class AppNavigation {
     var bookID: String? {
         didSet { UserDefaults.standard.set(bookID, forKey: "openBookID") }
     }
+    /// True once a book has fully faded in over the library.
+    private(set) var libraryCovered: Bool
+    @ObservationIgnored private var switchTask: Task<Void, Never>?
 
     private init() {
-        bookID = UserDefaults.standard.string(forKey: "openBookID")
+        let saved = UserDefaults.standard.string(forKey: "openBookID")
+        bookID = saved
+        libraryCovered = saved != nil
+    }
+
+    func switchScreen(to id: String?) {
+        libraryCovered = false
+        var transaction = Transaction(animation: Motion.screenFade)
+        transaction[SwitchingScreen.self] = true
+        withTransaction(transaction) { bookID = id }
+        switchTask?.cancel()
+        switchTask = Task {
+            try? await Task.sleep(for: .seconds(Motion.screenFadeDuration))
+            guard !Task.isCancelled else { return }
+            libraryCovered = bookID != nil
+            switchTask = nil
+        }
+    }
+
+    /// Returns once the current screen switch has finished fading.
+    func settled() async {
+        await switchTask?.value
     }
 }
 
@@ -79,7 +103,7 @@ final class OpenBridge {
     func attach(_ action: OpenWindowAction) { openWindow = action }
 
     func openBook(_ id: String) {
-        switchScreen(to: id)
+        AppNavigation.shared.switchScreen(to: id)
         openLibrary()
     }
 
@@ -93,14 +117,8 @@ final class OpenBridge {
     }
 
     func showLibrary() {
-        LibraryStore.shared.flushAll()
-        switchScreen(to: nil)
-    }
-
-    private func switchScreen(to id: String?) {
-        var transaction = Transaction(animation: .smooth(duration: 0.35))
-        transaction[SwitchingScreen.self] = true
-        withTransaction(transaction) { AppNavigation.shared.bookID = id }
+        LibraryStore.shared.saveAllInBackground()
+        AppNavigation.shared.switchScreen(to: nil)
     }
 }
 
@@ -117,12 +135,16 @@ struct RootView: View {
 
     @State private var system = SystemAppearance.shared
 
-    /// The reading theme's scheme while a book is open, the system's otherwise. Always explicit: SwiftUI keeps the
-    /// last scheme it was given when handed `nil`.
-    private var scheme: ColorScheme {
+    private var readerScheme: ColorScheme {
         let theme = settings.prefs.theme
-        if nav.bookID != nil, theme != .auto { return theme.isDark ? .dark : .light }
+        if theme != .auto { return theme.isDark ? .dark : .light }
         return system.isDark ? .dark : .light
+    }
+
+    /// Changes only while the library is out of sight, so it never visibly flips. Always explicit: SwiftUI keeps the
+    /// last scheme it was given when handed `nil`.
+    private var windowScheme: ColorScheme {
+        nav.libraryCovered ? readerScheme : (system.isDark ? .dark : .light)
     }
 
     var body: some View {
@@ -131,18 +153,22 @@ struct RootView: View {
             LibraryView()
                 .allowsHitTesting(nav.bookID == nil)
                 .accessibilityHidden(nav.bookID != nil)
+                .opacity(nav.libraryCovered ? 0 : 1)
+                .transaction(value: nav.libraryCovered) { $0.animation = nil }
             if let id = nav.bookID {
                 ReaderWindow(bookID: id)
                     .id(id)
+                    .environment(\.colorScheme, readerScheme)
                     .transaction { if $0[SwitchingScreen.self] { $0.animation = nil } }
                     .transition(.opacity)
+                    .zIndex(1)
             }
         }
         .onAppear {
             LibraryStore.shared.start()
             OpenBridge.shared.attach(openWindow)
         }
-        .preferredColorScheme(scheme)
+        .preferredColorScheme(windowScheme)
         .background(MainWindowSetup())
         // SwiftUI routes Finder "Open" events here once a window exists.
         .onOpenURL { url in
@@ -272,7 +298,7 @@ struct BooksCommands: Commands {
             Button("Ask Claude") {
                 guard let reader else { return }
                 if reader.showClaude && reader.selection == nil && reader.claudeInputFocused {
-                    withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
+                    withAnimation(Motion.panel) { reader.showClaude = false }
                     reader.engine?.focusContent()
                 } else {
                     reader.askClaude(action: nil)
@@ -311,7 +337,7 @@ struct BooksCommands: Commands {
 
     private func toggle(_ panel: ReaderPanel) {
         guard let reader else { return }
-        withAnimation(.spring(duration: 0.4)) { reader.panel = reader.panel == panel ? nil : panel }
+        withAnimation(Motion.panel) { reader.panel = reader.panel == panel ? nil : panel }
     }
 }
 

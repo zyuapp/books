@@ -2,13 +2,21 @@ import AppKit
 import SwiftUI
 
 struct SidePanel: View {
+    static let width: CGFloat = 330
+    static let edgeInset: CGFloat = 12
+    /// Clears the window edge, including what glass draws outside the panel's frame.
+    static var closedOffset: CGFloat { width + edgeInset + 30 }
+
     let model: ReaderModel
-    let panel: ReaderPanel
+    @State private var lastPanel = ReaderPanel.contents
     @Environment(\.colorScheme) private var colorScheme
+
+    /// Keeps showing the last panel while sliding out.
+    private var shown: ReaderPanel { model.panel ?? lastPanel }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: Binding(get: { model.panel ?? .contents }, set: { model.panel = $0 })) {
+            Picker("", selection: Binding(get: { shown }, set: { model.panel = $0 })) {
                 Text("Contents").tag(ReaderPanel.contents)
                 Text("Notes").tag(ReaderPanel.notes)
                 Text("Search").tag(ReaderPanel.search)
@@ -17,17 +25,21 @@ struct SidePanel: View {
             .labelsHidden()
             .padding(14)
 
-            switch panel {
+            switch shown {
             case .contents: ContentsList(model: model)
             case .notes: NotesList(model: model)
             case .search: SearchPanel(model: model)
             }
         }
-        .frame(width: 330)
+        .transaction { $0.animation = nil }
+        .frame(width: Self.width)
         .glassSurface(in: .rect(cornerRadius: 26),
                       tint: ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor.opacity(0.6))
         .readerOverlay()
-        .shadow(color: .black.opacity(0.12), radius: 30, y: 10)
+        .glassShadow(radius: 30, y: 10)
+        .onChange(of: model.panel) { _, panel in
+            if let panel { lastPanel = panel }
+        }
     }
 }
 
@@ -35,15 +47,15 @@ struct SidePanel: View {
 
 private struct ContentsList: View {
     let model: ReaderModel
+    @State private var rows: [Row] = []
 
     var body: some View {
-        let toc = model.publication?.toc ?? []
         let current = model.publication?.tocEntry(forSpineIndex: model.location.index)?.id
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     BookHeader(model: model).padding(.bottom, 10)
-                    ForEach(flatten(toc)) { row in
+                    ForEach(rows) { row in
                         Button { model.go(to: row.entry) } label: {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(row.entry.title)
@@ -71,8 +83,22 @@ private struct ContentsList: View {
                 .padding(.bottom, 14)
             }
             .softScrollEdges(.all)
-            .onAppear { if let current { proxy.scrollTo(current, anchor: .center) } }
+            .onChange(of: model.publication == nil, initial: true) {
+                rows = flatten(model.publication?.toc ?? [])
+            }
+            // Positions the list ahead of time while it's hidden, so opening doesn't have to.
+            .onChange(of: current, initial: true) { _, id in
+                if model.panel != .contents { center(id, proxy) }
+            }
+            .onChange(of: model.panel) { _, panel in
+                if panel == .contents { center(current, proxy) }
+            }
         }
+    }
+
+    private func center(_ id: UUID?, _ proxy: ScrollViewProxy) {
+        guard let id else { return }
+        withTransaction(Transaction(animation: nil)) { proxy.scrollTo(id, anchor: .center) }
     }
 
     struct Row: Identifiable { let entry: TOCEntry; let depth: Int; var id: UUID { entry.id } }
@@ -306,6 +332,7 @@ private struct SearchPanel: View {
             }
         }
         .onAppear { DispatchQueue.main.async { focused = true } }
+        .onChange(of: model.panel) { _, panel in focused = panel == .search }
     }
 }
 

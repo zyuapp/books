@@ -22,6 +22,8 @@ final class LibraryStore {
 
     private(set) var books: [BookRecord] = []
     private(set) var states: [String: ReadingState] = [:]
+    /// File coordination can block for a long time on iCloud Drive.
+    @ObservationIgnored private let saveQueue = DispatchQueue(label: "com.zyu.books.state-saves", qos: .utility)
     private(set) var coverVersion = 0
     private(set) var isScanning = false
     @ObservationIgnored private var located = false
@@ -241,8 +243,11 @@ final class LibraryStore {
                 for (id, disk) in loaded {
                     self.states[id] = self.states[id].map { $0.merged(with: disk) } ?? disk
                 }
-                for id in conflictIDs { self.flush(id) }
-                for file in conflicts { try? FileManager.default.removeItem(at: file) }
+                for id in conflictIDs { self.enqueueSave(id) }
+                let merged = conflicts
+                self.saveQueue.async {
+                    for file in merged { try? FileManager.default.removeItem(at: file) }
+                }
                 self.statesLoaded = true
             }
         }
@@ -273,27 +278,48 @@ final class LibraryStore {
         pendingSaves[id] = Task {
             try? await Task.sleep(for: .milliseconds(800))
             guard !Task.isCancelled else { return }
-            flush(id)
+            enqueueSave(id)
         }
     }
 
+    /// Blocks until every pending state is on disk.
     func flushAll() {
-        for id in pendingSaves.keys { flush(id) }
+        for (id, task) in pendingSaves {
+            task.cancel()
+            enqueueSave(id)
+        }
+        saveQueue.sync {}
     }
 
-    private func flush(_ id: String) {
+    /// Starts writing every pending state without waiting for it.
+    func saveAllInBackground() {
+        for (id, task) in pendingSaves {
+            task.cancel()
+            enqueueSave(id)
+        }
+    }
+
+    private func enqueueSave(_ id: String) {
         pendingSaves[id] = nil
-        guard let s = states[id] else { return }
+        guard let state = states[id] else { return }
         let url = stateFile(id)
+        saveQueue.async {
+            guard let message = Self.write(state, to: url) else { return }
+            Task { @MainActor in LibraryStore.shared.lastError = message }
+        }
+    }
+
+    /// Merges with what is on disk and writes the result. Returns an error message on failure.
+    private nonisolated static func write(_ state: ReadingState, to url: URL) -> String? {
         var error: NSError?
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forMerging, error: &error) { u in
-            var toWrite = s
+            var toWrite = state
             if let data = try? Data(contentsOf: u), let disk = try? JSONDecoder.books.decode(ReadingState.self, from: data) {
-                toWrite = s.merged(with: disk)
+                toWrite = state.merged(with: disk)
             }
             if let data = try? JSONEncoder.books.encode(toWrite) { try? data.write(to: u, options: .atomic) }
         }
-        if let error { lastError = error.localizedDescription }
+        return error?.localizedDescription
     }
 
     // MARK: Covers

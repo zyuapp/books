@@ -28,6 +28,9 @@ struct ReaderView: View {
     @State private var chat: ClaudeChat
     @State private var settings = ReaderSettings.shared
     @Environment(\.colorScheme) private var colorScheme
+    /// Engines and panels wait for the screen fade: building them during it drops frames.
+    @State private var contentMounted = false
+    @State private var spinnerDue = false
 
     init(book: BookRecord) {
         let m = ReaderModel(book: book)
@@ -51,7 +54,15 @@ struct ReaderView: View {
         .background(WindowChrome(model: model, visible: chromeShown))
         .focusedSceneValue(\.readerModel, model)
         .task { await model.load() }
-        .onDisappear { LibraryStore.shared.flushAll() }
+        .task {
+            await AppNavigation.shared.settled()
+            contentMounted = true
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(400))
+            spinnerDue = true
+        }
+        .onDisappear { LibraryStore.shared.saveAllInBackground() }
         .sheet(item: $model.noteEditor) { h in
             NoteEditor(highlight: h) { note in
                 model.updateHighlight(h.id) { $0.note = note.isEmpty ? nil : note }
@@ -62,13 +73,15 @@ struct ReaderView: View {
     @ViewBuilder
     private var content: some View {
         if let pub = model.publication {
-            switch pub.kind {
-            case .reflowable:
-                WebReaderView(model: model, publication: pub, isDark: colorScheme == .dark, prefs: settings.prefs)
-            case .pdf:
-                PDFReaderView(model: model, publication: pub, isDark: colorScheme == .dark, prefs: settings.prefs)
-            case .comic:
-                ComicReaderView(model: model, publication: pub, prefs: settings.prefs)
+            if contentMounted {
+                switch pub.kind {
+                case .reflowable:
+                    WebReaderView(model: model, publication: pub, isDark: colorScheme == .dark, prefs: settings.prefs)
+                case .pdf:
+                    PDFReaderView(model: model, publication: pub, isDark: colorScheme == .dark, prefs: settings.prefs)
+                case .comic:
+                    ComicReaderView(model: model, publication: pub, prefs: settings.prefs)
+                }
             }
         } else if let error = model.loadError {
             ContentUnavailableView {
@@ -77,7 +90,7 @@ struct ReaderView: View {
                 Text(error)
             }
             .foregroundStyle(theme.foregroundColor)
-        } else {
+        } else if spinnerDue {
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large)
                 Text(model.isDownloading ? "Downloading from iCloud…" : "Opening…")
@@ -119,12 +132,16 @@ struct ReaderView: View {
                 }
 
                 HStack(alignment: .top, spacing: 0) {
-                    if let panel = model.panel {
-                        SidePanel(model: model, panel: panel)
-                            .padding(.leading, 12)
+                    if contentMounted {
+                        // Stays mounted and slides off-window, so opening only moves an already-built panel.
+                        SidePanel(model: model)
+                            .padding(.leading, SidePanel.edgeInset)
                             .padding(.top, 56)
                             .padding(.bottom, 12)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
+                            .frame(width: model.panel == nil ? 0 : SidePanel.width + SidePanel.edgeInset, alignment: .leading)
+                            .offset(x: model.panel == nil ? -SidePanel.closedOffset : 0)
+                            .allowsHitTesting(model.panel != nil)
+                            .accessibilityHidden(model.panel == nil)
                     }
                     if !(model.showClaude && model.claudeExpanded) { Spacer(minLength: 0) }
                     if model.showClaude {
@@ -133,7 +150,7 @@ struct ReaderView: View {
                             .padding(.trailing, 12)
                             .padding(.top, 56)
                             .padding(.bottom, 12)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .transition(.move(edge: .trailing))
                     }
                 }
 
@@ -162,13 +179,13 @@ struct ReaderView: View {
                 }
             }
             .onPreferenceChange(OverlayFramesKey.self) { rects in model.overlayRects = rects }
-            .animation(.spring(duration: 0.32), value: model.selection)
-            .animation(.spring(duration: 0.3), value: model.footnote)
-            .animation(.spring(duration: 0.4), value: model.panel)
-            .animation(.spring(duration: 0.4), value: model.showClaude)
-            .animation(.spring(duration: 0.4), value: model.claudeExpanded)
-            .animation(.easeInOut(duration: 0.25), value: model.zoomPercent == nil)
-            .animation(.easeInOut(duration: 0.35), value: model.chromeVisible)
+            .animation(Motion.popup, value: model.selection)
+            .animation(Motion.popup, value: model.footnote)
+            .animation(Motion.panel, value: model.panel)
+            .animation(Motion.panel, value: model.showClaude)
+            .animation(Motion.panel, value: model.claudeExpanded)
+            .animation(Motion.popup, value: model.zoomPercent == nil)
+            .animation(Motion.popup, value: model.chromeVisible)
         }
     }
 
@@ -457,7 +474,7 @@ private struct SelectionBar: View {
         .glassSurface(in: .capsule)
         .fixedSize()
         .readerOverlay()
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+        .glassShadow(radius: 16, y: 6)
     }
 
     private var divider: some View {
@@ -510,7 +527,7 @@ private struct NoteCard: View {
         .frame(width: 360)
         .glassSurface(in: .rect(cornerRadius: 20))
         .readerOverlay()
-        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+        .glassShadow(radius: 20, y: 8)
     }
 }
 
@@ -567,12 +584,15 @@ private struct WindowChrome: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TrackingView, context: Context) {
+        let coordinator = context.coordinator
+        guard coordinator.buttonsVisible != visible else { return }
+        coordinator.buttonsVisible = visible
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                 guard let button = window.standardWindowButton(type) else { continue }
                 NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.35
+                    ctx.duration = 0.22
                     button.animator().alphaValue = visible ? 1 : 0
                 }
             }
@@ -590,6 +610,7 @@ private struct WindowChrome: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         let model: ReaderModel
+        var buttonsVisible = true
         private weak var window: NSWindow?
         private var monitor: Any?
         private var observers: [NSObjectProtocol] = []

@@ -279,7 +279,7 @@ struct LibraryView: View {
     private var header: some View {
         HeaderBar(title: section?.title ?? "Library", subtitle: subtitle) {
             Button {
-                withAnimation(.easeInOut(duration: 0.25)) { showSidebar.toggle() }
+                withAnimation(Motion.panel) { showSidebar.toggle() }
             } label: {
                 Image(systemName: "sidebar.leading").frame(width: 18, height: 18)
             }
@@ -382,12 +382,16 @@ struct BookCard: View {
             ZStack(alignment: .bottomTrailing) {
                 CoverView(bookID: book.id, title: title, author: state.author)
                     .frame(width: width, height: width * 1.5)
-                    .shadow(color: .black.opacity(hovering ? 0.32 : 0.2), radius: hovering ? 16 : 8, y: hovering ? 10 : 4)
+                    .background {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(.black)
+                            .shadow(color: .black.opacity(hovering ? 0.32 : 0.2), radius: hovering ? 16 : 8, y: hovering ? 10 : 4)
+                    }
                 badge(state)
                     .padding(6)
             }
             .scaleEffect(hovering ? 1.03 : 1, anchor: .bottom)
-            .animation(.spring(duration: 0.3, bounce: 0.3), value: hovering)
+            .animation(Motion.hover, value: hovering)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.body.weight(.semibold)).lineLimit(2)
@@ -471,17 +475,18 @@ private struct HeroCard: View {
         let state = library.state(book.id)
         let title = state.title ?? book.url.deletingPathExtension().lastPathComponent
         ZStack {
-            // Blurred cover wash behind the glass.
-            CoverView(bookID: book.id, title: title, author: state.author, cornerRadius: 0)
-                .scaleEffect(x: 4, y: 2.2)
-                .blur(radius: 90)
+            CoverWash(bookID: book.id, title: title)
                 .opacity(0.6)
                 .overlay(LinearGradient(colors: [.black.opacity(0.0), .black.opacity(0.25)], startPoint: .leading, endPoint: .trailing))
                 .clipped()
             HStack(spacing: 30) {
                 CoverView(bookID: book.id, title: title, author: state.author)
                     .frame(width: 150, height: 225)
-                    .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
+                    .background {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(.black)
+                            .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
+                    }
                 VStack(alignment: .leading, spacing: 10) {
                     Text("CONTINUE READING").font(.subheadline.weight(.bold)).tracking(1.2).foregroundStyle(.secondary)
                     Text(title).font(.system(size: 30, weight: .semibold, design: .serif)).lineLimit(2)

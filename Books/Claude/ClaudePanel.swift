@@ -286,12 +286,12 @@ struct ClaudePanel: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.smooth(duration: 0.3), value: reader.claudeShowsHistory)
+        .animation(Motion.panel, value: reader.claudeShowsHistory)
         .frame(maxWidth: reader.claudeExpanded ? .infinity : 400)
         .glassSurface(in: .rect(cornerRadius: 26), tint: theme.backgroundColor.opacity(0.6))
         .clipShape(.rect(cornerRadius: 26))
         .readerOverlay()
-        .shadow(color: .black.opacity(0.14), radius: 30, y: 10)
+        .glassShadow(opacity: 0.14, radius: 30, y: 10)
         .onChange(of: reader.claudeDraft) { _, seed in
             if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
         }
@@ -341,10 +341,10 @@ struct ClaudePanel: View {
                 }
                 PanelIconButton(symbol: reader.claudeExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                                 label: reader.claudeExpanded ? "Make Smaller" : "Expand") {
-                    withAnimation(.spring(duration: 0.4)) { reader.claudeExpanded.toggle() }
+                    withAnimation(Motion.panel) { reader.claudeExpanded.toggle() }
                 }
                 PanelIconButton(symbol: "xmark", label: "Close") {
-                    withAnimation(.spring(duration: 0.35)) { reader.showClaude = false }
+                    withAnimation(Motion.panel) { reader.showClaude = false }
                 }
             }
         }
