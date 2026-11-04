@@ -115,7 +115,7 @@ final class WebEngine: NSObject, ReaderEngine, WKNavigationDelegate {
             "layout": fixed ? "fixed" : p.layout.rawValue,
             "spread": p.spread.rawValue,
             "marginMin": p.margin,
-            "vmargin": 82,
+            "vmargin": 92,
             "maxWidth": Int(p.fontSize * 36 + p.margin * 2),
             "size": p.fontSize,
             "lineHeight": p.lineHeight,

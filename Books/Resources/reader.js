@@ -40,6 +40,7 @@
     const base = `
       :root { color-scheme: ${c.dark ? 'dark' : 'light'}; }
       html { background: ${c.bg} !important; color: ${c.fg} !important; -webkit-text-size-adjust: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; font-kerning: normal; font-variant-ligatures: common-ligatures; }
+      body p, body li, body dd { text-wrap: pretty; }
       body { background: transparent !important; color: inherit !important; font-size: ${c.size}px !important; line-height: ${c.lineHeight} !important; widows: 2; orphans: 2; overflow-wrap: break-word; }
       body *:not(mark) { color: inherit !important; background-color: transparent !important; }
       body p, body li, body blockquote, body dd, body div { line-height: inherit !important; }
@@ -49,15 +50,16 @@
       pre { white-space: pre-wrap !important; }
       table { max-width: 100%; }
       hr { border: none; border-top: 1px solid ${c.secondary}; opacity: 0.5; width: 30%; margin: 2em auto; }
-      ::selection { background: ${c.dark ? 'rgba(227, 168, 87, 0.35)' : 'rgba(176, 101, 43, 0.25)'}; }
-      mark.bk-hl { color: inherit !important; border-radius: 3px; padding: 0.05em 0; cursor: pointer; -webkit-box-decoration-break: clone; transition: background-color 0.2s; }
-      mark.bk-hl.yellow { background-color: rgba(247, 209, 84, ${c.dark ? 0.38 : 0.55}) !important; }
-      mark.bk-hl.green { background-color: rgba(143, 209, 139, ${c.dark ? 0.35 : 0.55}) !important; }
-      mark.bk-hl.blue { background-color: rgba(139, 195, 242, ${c.dark ? 0.35 : 0.55}) !important; }
-      mark.bk-hl.pink { background-color: rgba(244, 155, 184, ${c.dark ? 0.35 : 0.55}) !important; }
-      mark.bk-hl.purple { background-color: rgba(193, 163, 240, ${c.dark ? 0.35 : 0.55}) !important; }
+      body *::first-letter { color: inherit !important; }
+      ::selection { background: #2F6FED; color: #FFFFFF; }
+      mark.bk-hl { color: inherit !important; border-radius: 3px; padding: ${Math.max(0, (c.lineHeight - 1.2) / 2)}em 0; cursor: pointer; -webkit-box-decoration-break: slice; transition: background-color 0.2s; }
+      mark.bk-hl.yellow { background-color: ${c.dark ? 'rgba(247, 209, 84, 0.3)' : 'rgba(247, 209, 84, 0.42)'} !important; }
+      mark.bk-hl.green { background-color: ${c.dark ? 'rgba(143, 209, 139, 0.3)' : 'rgba(143, 209, 139, 0.42)'} !important; }
+      mark.bk-hl.blue { background-color: ${c.dark ? 'rgba(139, 195, 242, 0.3)' : 'rgba(139, 195, 242, 0.42)'} !important; }
+      mark.bk-hl.pink { background-color: ${c.dark ? 'rgba(244, 155, 184, 0.3)' : 'rgba(244, 155, 184, 0.42)'} !important; }
+      mark.bk-hl.purple { background-color: ${c.dark ? 'rgba(193, 163, 240, 0.32)' : 'rgba(193, 163, 240, 0.42)'} !important; }
       mark.bk-hl.underline { background-color: transparent !important; text-decoration: underline 2px rgba(226, 91, 69, 0.9) !important; text-underline-offset: 3px; }
-      mark.bk-hl.has-note { border-bottom: 1.5px dotted currentColor; }
+      mark.bk-hl.has-note { text-decoration: underline dotted 1px rgba(128, 128, 128, 0.8); text-underline-offset: 3px; }
       mark.bk-find { background-color: rgba(255, 196, 0, 0.75) !important; color: #000 !important; border-radius: 3px; animation: bkpulse 1.6s ease-out 1; }
       @keyframes bkpulse { 0% { box-shadow: 0 0 0 0 rgba(255, 196, 0, 0.8); } 100% { box-shadow: 0 0 0 10px rgba(255, 196, 0, 0); } }
       ${font} ${align} ${hyph}`;
@@ -86,6 +88,23 @@
     style.textContent = css(cfg);
     if (cfg.layout !== 'paginated') document.getElementById('bk-page-pad')?.remove();
     if (cfg.layout === 'fixed') fitFixedLayout();
+    else syncJustification();
+  }
+
+  // Publisher stylesheets often justify body text, which the Justify setting must be able to turn off.
+  function syncJustification() {
+    if (cfg.justify) {
+      document.querySelectorAll('[data-bk-unjustified]').forEach((e) => {
+        e.style.removeProperty('text-align');
+        e.removeAttribute('data-bk-unjustified');
+      });
+      return;
+    }
+    document.querySelectorAll('body p, body li, body dd, body blockquote').forEach((e) => {
+      if (getComputedStyle(e).textAlign !== 'justify') return;
+      e.style.setProperty('text-align', 'start', 'important');
+      e.setAttribute('data-bk-unjustified', '');
+    });
   }
 
   function fitFixedLayout() {
@@ -438,6 +457,7 @@
     applyStyle();
     const finish = () => {
       ready = true;
+      if (cfg.layout !== 'fixed') syncJustification();
       apply(pendingTarget || { progression: 0 });
       pendingTarget = null;
       post({ type: 'ready', pageCount: pageCount() });

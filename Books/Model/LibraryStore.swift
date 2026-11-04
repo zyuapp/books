@@ -327,7 +327,7 @@ final class LibraryStore {
     func cover(_ id: String) -> NSImage? {
         _ = coverVersion
         if let c = covers[id] { return c }
-        guard let image = NSImage(contentsOf: coverFile(id)) else { return nil }
+        guard let image = NSImage(contentsOf: coverFile(id)), !image.isNearlyBlank else { return nil }
         covers[id] = image
         return image
     }
@@ -489,8 +489,9 @@ enum BookMetadata {
             let title = (attrs[PDFDocumentAttribute.titleAttribute] as? String).flatMap { $0.count > 1 ? $0 : nil }
             let author = (attrs[PDFDocumentAttribute.authorAttribute] as? String).flatMap { $0.isEmpty ? nil : $0 }
             var jpeg: Data?
-            if wantCover, let page = doc.page(at: 0) {
-                jpeg = page.thumbnail(of: NSSize(width: 600, height: 900), for: .cropBox).jpegData(maxHeight: 900)
+            if wantCover {
+                let thumbnails = (0..<min(doc.pageCount, 6)).lazy.compactMap { doc.page(at: $0)?.thumbnail(of: NSSize(width: 600, height: 900), for: .cropBox) }
+                jpeg = thumbnails.first { !$0.isNearlyBlank }?.jpegData(maxHeight: 900)
             }
             return Result(title: title ?? url.deletingPathExtension().lastPathComponent, author: author, coverJPEG: jpeg)
         case .cbz, .cbr, .cb7, .cbt:

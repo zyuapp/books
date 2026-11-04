@@ -31,6 +31,7 @@
 		79B2379F6EB82BF0534A26B6 /* Archive.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C3D2E4DBF78D38B9F0426C /* Archive.swift */; };
 		7C267361B7D11DF913CAAE8C /* FB2Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1286E0B3181EE25BD1B43DA9 /* FB2Parser.swift */; };
 		7DFAFCB0F3181D0B1856DD1E /* ReadingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7801CB4E43A1CB4795E852D7 /* ReadingState.swift */; };
+		833F54DAF9380FABEBFFDA08 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD987DF5FE025F0B4E9D222B /* Controls.swift */; };
 		86FFB2E28FDE7444AB8A9D46 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489DDBB27D2FA88E274ABC37 /* LibraryView.swift */; };
 		95A83E6C0D9CEB709B2E759C /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 7DEEBB0A8603E766CE5F8C67 /* mermaid.min.js */; };
 		997F2446BE3B91AEBC80E0AA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5A3165B1FBEB5B04811E3A8B /* Assets.xcassets */; };
@@ -97,6 +98,7 @@
 		AFB9FC23946999B556B43433 /* MOBIKF8.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MOBIKF8.swift; sourceTree = "<group>"; };
 		B89718B2711AD2A88F12FEF6 /* reader.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = reader.js; sourceTree = "<group>"; };
 		B9E68685FF2DDAB71D94648C /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
+		BD987DF5FE025F0B4E9D222B /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
 		C4C3D2E4DBF78D38B9F0426C /* Archive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Archive.swift; sourceTree = "<group>"; };
 		C9FFF6E96FA5F23F0916CDCC /* CoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverView.swift; sourceTree = "<group>"; };
 		EABE0C589E531F55E4663A67 /* Compat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Compat.swift; sourceTree = "<group>"; };
@@ -237,6 +239,7 @@
 			children = (
 				733C4FD3DECDE21F3DF6799B /* BooksApp.swift */,
 				EABE0C589E531F55E4663A67 /* Compat.swift */,
+				BD987DF5FE025F0B4E9D222B /* Controls.swift */,
 				6C96D4F7A56F5125DE97ED96 /* HeaderBar.swift */,
 				286A2A38D5605386B059A0B6 /* Motion.swift */,
 				7ECBEFF2CB9CB9DFD1AC7626 /* ReleaseUpdate.swift */,
@@ -338,6 +341,7 @@
 				A4135EB7DD029E648B30D6C3 /* ClaudeService.swift in Sources */,
 				C43A8341AF79640CDF8A0614 /* ComicReaderView.swift in Sources */,
 				6F7FA975A732F108EA2BD2FA /* Compat.swift in Sources */,
+				833F54DAF9380FABEBFFDA08 /* Controls.swift in Sources */,
 				C671F779382C911B35DB33AD /* CoverView.swift in Sources */,
 				C1F5BAC9DDFAB65CCCBBA9F8 /* EPUBParser.swift in Sources */,
 				7C267361B7D11DF913CAAE8C /* FB2Parser.swift in Sources */,

@@ -30,6 +30,7 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var colorScheme
     /// Engines and panels wait for the screen fade: building them during it drops frames.
     @State private var contentMounted = false
+    @State private var selectionBarWidth: CGFloat = 430
 
     init(book: BookRecord) {
         let m = ReaderModel(book: book)
@@ -39,11 +40,17 @@ struct ReaderView: View {
 
     private var theme: ReaderTheme { settings.prefs.theme.resolved(dark: colorScheme == .dark) }
     private var chromeShown: Bool { model.chromeVisible || model.panel != nil || model.showClaude }
+    /// The page lays out beside open panels, so they never cover what's being read.
+    private var panelInset: CGFloat { model.panel == nil ? 0 : SidePanel.width + SidePanel.edgeInset }
+    private var claudeInset: CGFloat { model.showClaude && !model.claudeExpanded ? ClaudePanel.compactWidth + 12 : 0 }
 
     var body: some View {
         ZStack {
             theme.backgroundColor.ignoresSafeArea()
             content
+                .padding(.leading, panelInset)
+                .padding(.trailing, claudeInset)
+                .transaction { $0.animation = nil }
                 .ignoresSafeArea()
             if !model.isContentReady && model.loadError == nil {
                 loadingCover
@@ -138,6 +145,8 @@ struct ReaderView: View {
                     Spacer()
                     if model.publication != nil && model.chromeVisible {
                         BottomBar(model: model, theme: theme)
+                            .padding(.leading, panelInset)
+                            .padding(.trailing, claudeInset)
                             .transition(.opacity.combined(with: .offset(y: 12)))
                     }
                 }
@@ -165,9 +174,20 @@ struct ReaderView: View {
                     }
                 }
 
+                if model.showSettings {
+                    ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable, reader: model)
+                        .readerPanelSurface(theme, cornerRadius: 20)
+                        .readerOverlay()
+                        .padding(.top, 56)
+                        .padding(.trailing, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topTrailing)))
+                }
                 if let sel = model.selection {
-                    SelectionBar(model: model, selection: sel)
-                        .position(selectionBarPosition(sel.rect, in: geo.size))
+                    let x = selectionBarX(sel.rect, in: geo.size)
+                    SelectionBar(model: model, selection: sel, pointerOffset: sel.rect.midX - x, pointsDown: barAbove(sel.rect))
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { selectionBarWidth = $0 }
+                        .position(x: x, y: selectionBarY(sel.rect, in: geo.size))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
                 if let sel = model.selection, let note = highlightNote(sel) {
@@ -191,6 +211,7 @@ struct ReaderView: View {
             }
             .onPreferenceChange(OverlayFramesKey.self) { rects in model.overlayRects = rects }
             .animation(Motion.popup, value: model.selection)
+            .animation(Motion.popup, value: model.showSettings)
             .animation(Motion.popup, value: model.footnote)
             .animation(Motion.panel, value: model.panel)
             .animation(Motion.panel, value: model.showClaude)
@@ -200,16 +221,20 @@ struct ReaderView: View {
         }
     }
 
-    private static let barHeight: CGFloat = 46
-    private static let barGap: CGFloat = 22
+    private static let barHeight: CGFloat = 34
+    /// Clearance between the selection and the bar, including its pointer.
+    private static let barGap: CGFloat = 12
 
-    private func barAbove(_ rect: CGRect) -> Bool { rect.minY - Self.barHeight / 2 - Self.barGap >= 90 }
+    private func barAbove(_ rect: CGRect) -> Bool { rect.minY - Self.barHeight - Self.barGap >= 60 }
 
-    private func selectionBarPosition(_ rect: CGRect, in size: CGSize) -> CGPoint {
-        let barHeight = Self.barHeight, barWidth: CGFloat = 560
-        let y = barAbove(rect) ? rect.minY - barHeight / 2 - Self.barGap : rect.maxY + barHeight / 2 + Self.barGap
-        let x = min(max(rect.midX, barWidth / 2 + 12), size.width - barWidth / 2 - 12)
-        return CGPoint(x: x, y: min(max(y, barHeight), size.height - barHeight))
+    private func selectionBarX(_ rect: CGRect, in size: CGSize) -> CGFloat {
+        min(max(rect.midX, selectionBarWidth / 2 + 12), size.width - selectionBarWidth / 2 - 12)
+    }
+
+    private func selectionBarY(_ rect: CGRect, in size: CGSize) -> CGFloat {
+        let half = Self.barHeight / 2
+        let y = barAbove(rect) ? rect.minY - half - Self.barGap : rect.maxY + half + Self.barGap
+        return min(max(y, Self.barHeight), size.height - Self.barHeight)
     }
 
     private func highlightNote(_ sel: ReaderSelection) -> String? {
@@ -248,74 +273,45 @@ private struct TopBar: View {
     let theme: ReaderTheme
 
     var body: some View {
-        HeaderBar(title: model.title, subtitle: chapter, serif: true, titleColor: theme.foregroundColor.opacity(0.85)) {
-            GlassGroup(spacing: 8) {
-                HStack(spacing: 6) {
-                    Button { OpenBridge.shared.showLibrary() } label: {
-                        Image(systemName: "chevron.left").fontWeight(.semibold).frame(width: 18, height: 18)
-                    }
-                    .glassButtonStyle()
-                    .tooltip("Back to Library (⇧⌘L)")
-                    .accessibilityLabel("Back to Library")
-                    panelButton(.contents, symbol: "list.bullet", label: "Contents", shortcut: "⌥⌘T")
+        HeaderBar(title: model.title.mainTitle, subtitle: subtitle, serif: true, titleColor: theme.foregroundColor.opacity(0.85)) {
+            HeaderButtonGroup {
+                HeaderButton(symbol: "chevron.left", label: "Back to Library", tooltip: "Back to Library (⇧⌘L)") {
+                    OpenBridge.shared.showLibrary()
+                }
+                panelButton(.contents, symbol: "list.bullet", label: "Contents", shortcut: "⌥⌘T")
+                if model.publication?.kind != .comic {
                     panelButton(.notes, symbol: "highlighter", label: "Highlights & Bookmarks", shortcut: "⌥⌘N")
                     panelButton(.search, symbol: "magnifyingglass", label: "Search", shortcut: "⌘F")
                 }
             }
             .readerOverlay()
         } trailing: {
-            GlassGroup(spacing: 8) {
-                HStack(spacing: 6) {
-                    Button { model.showSettings.toggle() } label: {
-                        Image(systemName: "textformat.size").frame(width: 18, height: 18)
-                    }
-                    .glassButtonStyle()
-                    .tooltip("Reading Settings (⌥⌘A)")
-                    .accessibilityLabel("Reading Settings")
-                    .popover(isPresented: Binding(get: { model.showSettings }, set: { model.showSettings = $0 }), arrowEdge: .bottom) {
-                        ReaderSettingsPopover(kind: model.publication?.kind ?? .reflowable, reader: model)
-                    }
-
-                    Button { model.toggleBookmark() } label: {
-                        Image(systemName: model.isBookmarked ? "bookmark.fill" : "bookmark")
-                            .foregroundStyle(model.isBookmarked ? Color(hex: "#E25B45") : .primary)
-                            .frame(width: 18, height: 18)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .glassButtonStyle()
-                    .tooltip("Bookmark This Page (⌘D)")
-                    .accessibilityLabel("Bookmark")
-
-                    Button {
-                        if model.showClaude { model.showClaude = false } else { model.askClaude(action: nil) }
-                    } label: {
-                        Image(systemName: "sparkles").frame(width: 18, height: 18)
-                    }
-                    .glassButtonStyle()
-                    .tint(model.showClaude ? Color(hex: "#C96442") : nil)
-                    .tooltip("Ask Claude (⌘L)")
-                    .accessibilityLabel("Ask Claude")
+            HeaderButtonGroup {
+                HeaderButton(symbol: "textformat.size", label: "Reading Settings", tooltip: "Reading Settings (⌥⌘A)", active: model.showSettings) {
+                    model.showSettings.toggle()
+                }
+                HeaderButton(symbol: model.isBookmarked ? "bookmark.fill" : "bookmark", label: "Bookmark", tooltip: "Bookmark This Page (⌘D)",
+                             color: model.isBookmarked ? Color(hex: "#E25B45") : nil) {
+                    model.toggleBookmark()
+                }
+                HeaderButton(symbol: "sparkles", label: "Ask Claude", tooltip: "Ask Claude (⌘L)", active: model.showClaude) {
+                    if model.showClaude { model.showClaude = false } else { model.askClaude(action: nil) }
                 }
             }
             .readerOverlay()
         }
     }
 
-    private var chapter: String? {
-        guard let chapter = model.chapterTitle, chapter != model.title else { return nil }
-        return chapter
+    private var subtitle: String? {
+        guard let publication = model.publication else { return nil }
+        let chapter = model.chapterTitle.flatMap { $0 == model.title ? nil : $0 }
+        return publication.kind == .comic ? nil : chapter
     }
 
     private func panelButton(_ panel: ReaderPanel, symbol: String, label: String, shortcut: String) -> some View {
-        Button {
+        HeaderButton(symbol: symbol, label: label, tooltip: "\(label) (\(shortcut))", active: model.panel == panel) {
             model.panel = model.panel == panel ? nil : panel
-        } label: {
-            Image(systemName: symbol).frame(width: 18, height: 18)
         }
-        .glassButtonStyle()
-        .tint(model.panel == panel ? Color.accentColor : nil)
-        .tooltip("\(label) (\(shortcut))")
-        .accessibilityLabel(label)
     }
 }
 
@@ -333,7 +329,7 @@ private struct BottomBar: View {
                 }
                 Text(leftLabel)
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary.opacity(0.7))
                     .lineLimit(1)
                     .frame(minWidth: 110, alignment: model.isPaginatedLayout ? .center : .leading)
                 if model.isPaginatedLayout {
@@ -350,30 +346,31 @@ private struct BottomBar: View {
             ), in: 0...1) { editing in
                 if !editing { scrubValue = nil }
             }
-            .tint(Color(hex: "#C96442"))
+            .tint(Color.brand)
             .controlSize(.small)
-            .frame(minWidth: 160, maxWidth: 380)
+            .frame(minWidth: 80, maxWidth: 340)
             Text("\(Int((progress * 100).rounded()))%")
                 .font(.callout.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.7))
                 .frame(width: 38, alignment: .trailing)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
-        .glassSurface(in: .capsule)
+        .readerPanelSurface(theme, cornerRadius: 23)
         .readerOverlay()
+        .padding(.horizontal, 16)
         .padding(.bottom, 14)
     }
 
     private func pageButton(symbol: String, label: String, forward: Bool) -> some View {
         Button { forward ? model.nextPage() : model.previousPage() } label: {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 24, height: 24)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 26, height: 26)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary.opacity(0.65))
         .tooltip(label)
         .accessibilityLabel(label)
     }
@@ -423,7 +420,12 @@ private struct BackPill: View {
 private struct SelectionBar: View {
     let model: ReaderModel
     let selection: ReaderSelection
-    @Environment(\.self) private var env
+    var pointerOffset: CGFloat = 0
+    var pointsDown = true
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var surface: ReaderTheme { ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark) }
+    private var raised: Color { surface.isDark ? .white.opacity(0.12) : .white }
 
     var body: some View {
         let existing = selection.highlightID.flatMap { id in model.state.liveHighlights.first { $0.id == id } }
@@ -433,7 +435,7 @@ private struct SelectionBar: View {
                     Button { model.highlightSelection(c) } label: {
                         ZStack {
                             if c == .underline {
-                                Image(systemName: "underline").font(.system(size: 12, weight: .bold)).foregroundStyle(c.color)
+                                Image(systemName: "underline").font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
                             } else {
                                 Circle().fill(c.color.gradient).frame(width: 17, height: 17)
                             }
@@ -454,10 +456,10 @@ private struct SelectionBar: View {
 
             divider
 
-            labeledButton("note.text.badge.plus", existing?.note == nil ? "Add Note" : "Edit Note") { model.addNoteToSelection() }
-            labeledButton("doc.on.doc", "Copy") { model.copySelection() }
+            iconButton("note.text.badge.plus", existing?.note == nil ? "Add Note" : "Edit Note") { model.addNoteToSelection() }
+            iconButton("doc.on.doc", "Copy") { model.copySelection() }
             if let existing {
-                labeledButton("trash", "Remove", role: .destructive) { model.deleteHighlight(existing.id) }
+                iconButton("trash", "Remove", role: .destructive) { model.deleteHighlight(existing.id) }
             }
 
             divider
@@ -467,8 +469,8 @@ private struct SelectionBar: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
-                    .frame(height: 30)
-                    .background(Color(hex: "#C96442").gradient, in: .capsule)
+                    .frame(height: 26)
+                    .background(Color.brand.gradient, in: .capsule)
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -481,27 +483,54 @@ private struct SelectionBar: View {
                 }
             }
         }
-        .frame(height: 40)
-        .glassSurface(in: .capsule)
+        .frame(height: 34)
+        .background(raised, in: .capsule)
+        .overlay(Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5))
+        .readerPanelSurface(surface, cornerRadius: 17)
         .fixedSize()
+        .overlay(alignment: pointsDown ? .bottom : .top) {
+            GeometryReader { geo in
+                PointerTriangle()
+                    .fill(raised)
+                    .background(PointerTriangle().fill(surface.backgroundColor))
+                    .overlay(PointerTriangle().stroke(.primary.opacity(0.14), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(surface.isDark ? 0.4 : 0.16), radius: 3, y: 2)
+                    .frame(width: 20, height: 9)
+                    .rotationEffect(pointsDown ? .zero : .degrees(180))
+                    .position(x: geo.size.width / 2 + min(max(pointerOffset, 26 - geo.size.width / 2), geo.size.width / 2 - 26),
+                              y: pointsDown ? geo.size.height + 3 : -3)
+            }
+            .allowsHitTesting(false)
+        }
         .readerOverlay()
-        .glassShadow(radius: 16, y: 6)
     }
 
     private var divider: some View {
         Divider().frame(height: 18).padding(.horizontal, 4)
     }
 
-    private func labeledButton(_ symbol: String, _ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ symbol: String, _ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
-            Label(title, systemImage: symbol)
-                .font(.body.weight(.medium))
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
-                .padding(.horizontal, 9)
-                .frame(height: 30)
+                .frame(width: 32, height: 28)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .tooltip(title)
+        .accessibilityLabel(title)
+    }
+}
+
+private struct PointerTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -512,6 +541,7 @@ private struct NoteCard: View {
     let actionTitle: String
     let action: (() -> Void)?
     let dismiss: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -536,9 +566,8 @@ private struct NoteCard: View {
         }
         .padding(16)
         .frame(width: 360)
-        .glassSurface(in: .rect(cornerRadius: 20))
+        .readerPanelSurface(ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark), cornerRadius: 20)
         .readerOverlay()
-        .glassShadow(radius: 20, y: 8)
     }
 }
 
@@ -547,6 +576,7 @@ private struct NoteEditor: View {
     let save: (String) -> Void
     @State private var text: String
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     init(highlight: Highlight, save: @escaping (String) -> Void) {
         self.highlight = highlight
@@ -556,24 +586,38 @@ private struct NoteEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            Text(highlight.note == nil ? "Add Note" : "Edit Note").font(.system(size: 18, weight: .semibold, design: .serif))
             HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 2).fill(highlight.color.color).frame(width: 4)
-                Text(highlight.text).font(.system(.body, design: .serif).italic()).lineLimit(5).foregroundStyle(.secondary)
+                RoundedRectangle(cornerRadius: 2).fill(highlight.color.color).frame(width: 3)
+                Text(highlight.text).font(.custom("Charter", size: 14)).lineLimit(5).foregroundStyle(.primary.opacity(0.85))
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(highlight.color.color.opacity(0.18), in: .rect(cornerRadius: 10))
+            .fixedSize(horizontal: false, vertical: true)
+            if let chapter = highlight.locator.label {
+                Text(chapter).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             TextEditor(text: $text)
                 .font(.body)
                 .scrollContentBackground(.hidden)
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("Write a note…").foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false)
+                    }
+                }
                 .padding(8)
-                .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+                .background(.primary.opacity(0.06), in: .rect(cornerRadius: 12))
                 .frame(minHeight: 140)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { save(text); dismiss() }.keyboardShortcut(.defaultAction).glassProminentButtonStyle()
+                Button("Save") { save(text); dismiss() }.keyboardShortcut(.defaultAction).glassProminentButtonStyle().tint(Color.brand)
             }
         }
         .padding(22)
         .frame(width: 460)
+        .background(ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor)
     }
 }
 
@@ -637,10 +681,9 @@ private struct WindowChrome: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .mouseMoved]) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, window.isKeyWindow else { return event }
                 if event.type == .mouseMoved {
-                    if self.model.isFullScreen, let content = window.contentView {
-                        let y = event.locationInWindow.y
-                        if y > content.bounds.height - 100 || y < 90 { self.model.pokeChrome() }
-                    }
+                    let y = event.locationInWindow.y
+                    if self.model.isFullScreen, let content = window.contentView,
+                       y > content.bounds.height - 100 || y < 90 { self.model.pokeChrome() }
                     return event
                 }
                 return ReaderKeys.handle(event, model: self.model, window: window) ? nil : event

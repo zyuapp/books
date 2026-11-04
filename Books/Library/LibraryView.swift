@@ -55,7 +55,7 @@ struct LibraryView: View {
     @State private var section: LibrarySection? = .home
     @State private var query = ""
     @AppStorage("librarySort") private var sort: LibrarySort = .recent
-    @AppStorage("coverSize") private var coverSize: Double = 150
+    @State private var gridWidth: CGFloat = 0
     @State private var newCollection: String?
     @State private var isDropTarget = false
     @State private var showSidebar = true
@@ -76,6 +76,7 @@ struct LibraryView: View {
                 SidebarDivider(width: $sidebarWidth)
             }
             detail
+                .clipped()
                 .padding(.top, HeaderBar<EmptyView, EmptyView>.height)
                 .frame(maxWidth: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -94,7 +95,7 @@ struct LibraryView: View {
         .overlay {
             if isDropTarget {
                 RoundedRectangle(cornerRadius: 18)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
+                    .strokeBorder(Color.brand, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
                     .padding(10)
                     .overlay(Label("Add to Library", systemImage: "plus.circle.fill").font(.title2.weight(.semibold))
                         .padding(18).glassSurface(in: .capsule))
@@ -121,7 +122,7 @@ struct LibraryView: View {
 
     private var subtitle: String {
         let n = filtered.count
-        return section == .home ? "" : "\(n) item\(n == 1 ? "" : "s")"
+        return "\(n) \(n == 1 ? "book" : "books")"
     }
 
     // MARK: Sidebar
@@ -133,9 +134,12 @@ struct LibraryView: View {
                     Label(s.title, systemImage: s.symbol).tag(s)
                 }
             }
-            Section("Formats") {
-                ForEach([LibrarySection.books, .pdfs, .comics, .documents], id: \.self) { s in
-                    if count(s) > 0 { Label(s.title, systemImage: s.symbol).tag(s) }
+            let formats = [LibrarySection.books, .pdfs, .comics, .documents].filter { count($0) > 0 }
+            if !formats.isEmpty {
+                Section("Formats") {
+                    ForEach(formats, id: \.self) { s in
+                        Label(s.title, systemImage: s.symbol).tag(s)
+                    }
                 }
             }
             Section("Collections") {
@@ -214,12 +218,15 @@ struct LibraryView: View {
         if library.books.isEmpty && !library.isScanning {
             EmptyLibrary(onAdd: addBooks)
         } else if section == .home && query.isEmpty {
-            HomeView(open: open, menu: { AnyView(contextMenu(for: $0)) })
+            HomeView(open: open, menu: { AnyView(contextMenu(for: $0)) }, seeAll: { section = $0 })
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: coverSize, maximum: coverSize * 1.25), spacing: 28, alignment: .top)], spacing: 34) {
+                if !filtered.isEmpty { gridHeader }
+                let metrics = CardMetrics(available: gridWidth)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(metrics.card), spacing: CardMetrics.gap, alignment: .top), count: metrics.count),
+                          alignment: .leading, spacing: 30) {
                     ForEach(filtered) { book in
-                        BookCard(book: book, width: coverSize)
+                        BookCard(book: book, width: metrics.card)
                             .onTapGesture { open(book) }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityAction { open(book) }
@@ -227,17 +234,48 @@ struct LibraryView: View {
                             .draggable(book.id)
                     }
                 }
-                .padding(.horizontal, 30)
-                .padding(.vertical, 24)
+                .padding(.horizontal, CardMetrics.inset)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .hiddenTopScrollEdge()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
             .overlay {
                 if filtered.isEmpty {
-                    ContentUnavailableView(query.isEmpty ? "Nothing Here Yet" : "No Results",
-                                           systemImage: section?.symbol ?? "books.vertical",
-                                           description: Text(query.isEmpty ? "Books you add will appear here." : "Try a different search."))
+                    if query.isEmpty {
+                        EmptyStateView(symbol: section?.symbol ?? "books.vertical", title: "Nothing Here Yet",
+                                       detail: "Books you add will appear here.", large: true)
+                    } else {
+                        EmptyStateView(symbol: "magnifyingglass", title: "No Results", detail: "Try a different search.", large: true,
+                                       actionTitle: "Clear Search", action: { query = "" })
+                    }
                 }
             }
         }
+    }
+
+    private var gridHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(query.isEmpty ? (section?.title ?? "Library") : "Results for “\(query)”")
+                .font(.system(size: 28, weight: .semibold, design: .serif))
+                .lineLimit(1)
+            Text(subtitle).foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Menu {
+                Picker("Sort by", selection: $sort) {
+                    ForEach(LibrarySort.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text("Sort: \(sort.name)").foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Sort by")
+        }
+        .padding(.horizontal, 30)
+        .padding(.top, 12)
+        .padding(.bottom, 18)
     }
 
     @ViewBuilder
@@ -277,26 +315,20 @@ struct LibraryView: View {
     // MARK: Header
 
     private var header: some View {
-        HeaderBar(title: section?.title ?? "Library", subtitle: subtitle) {
-            Button {
-                withAnimation(Motion.panel) { showSidebar.toggle() }
-            } label: {
-                Image(systemName: "sidebar.leading").frame(width: 18, height: 18)
+        HeaderBar(title: "", subtitle: nil) {
+            HeaderButtonGroup {
+                HeaderButton(symbol: "sidebar.leading", label: "Toggle Sidebar", tooltip: "Hide or show the sidebar") {
+                    withAnimation(Motion.panel) { showSidebar.toggle() }
+                }
             }
-            .glassButtonStyle()
-            .help("Hide or show the sidebar")
-            .accessibilityLabel("Toggle Sidebar")
             // At the sidebar's far edge while it shows.
             .frame(width: showSidebar ? max(44, sidebarWidth - HeaderBar<EmptyView, EmptyView>.leadingInset - 14) : nil, alignment: .trailing)
         } trailing: {
             HStack(spacing: 10) {
                 HeaderSearchField(prompt: "Title, author or format", text: $query, focus: $searchFocused)
-                Button(action: addBooks) {
-                    Image(systemName: "plus").frame(width: 18, height: 18)
+                HeaderButtonGroup {
+                    HeaderButton(symbol: "plus", label: "Add Books", tooltip: "Add books to your library (⇧⌘O)", action: addBooks)
                 }
-                .glassButtonStyle()
-                .help("Add books to your library (⇧⌘O)")
-                .accessibilityLabel("Add Books")
             }
         }
     }
@@ -351,7 +383,7 @@ private struct EmptyLibrary: View {
         VStack(spacing: 18) {
             Image(systemName: "books.vertical.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(LinearGradient(colors: [Color(hex: "#C96442"), Color(hex: "#8A3F26")], startPoint: .top, endPoint: .bottom))
+                .foregroundStyle(LinearGradient(colors: [Color.brand, Color(hex: "#8A3F26")], startPoint: .top, endPoint: .bottom))
                 .symbolEffect(.bounce, options: .nonRepeating)
             Text("Your library is empty").font(.system(.largeTitle, design: .serif).weight(.semibold))
             Text("Drop EPUB, PDF, MOBI, AZW3, FB2, comics or documents here.\n"
@@ -362,7 +394,7 @@ private struct EmptyLibrary: View {
                 Label("Add Books", systemImage: "plus").font(.headline).padding(.horizontal, 8)
             }
             .glassProminentButtonStyle()
-            .tint(Color(hex: "#C96442"))
+            .tint(Color.brand)
             .controlSize(.extraLarge)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -377,16 +409,12 @@ struct BookCard: View {
 
     var body: some View {
         let state = library.state(book.id)
-        let title = state.title ?? book.url.deletingPathExtension().lastPathComponent
+        let title = (state.title ?? book.url.deletingPathExtension().lastPathComponent).mainTitle
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottomTrailing) {
-                CoverView(bookID: book.id, title: title, author: state.author)
+                CoverView(bookID: book.id, title: title, author: state.author,
+                          shadowOpacity: hovering ? 0.32 : 0.2, shadowRadius: hovering ? 16 : 8, shadowY: hovering ? 10 : 4)
                     .frame(width: width, height: width * 1.5)
-                    .background {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(.black)
-                            .shadow(color: .black.opacity(hovering ? 0.32 : 0.2), radius: hovering ? 16 : 8, y: hovering ? 10 : 4)
-                    }
                 badge(state)
                     .padding(6)
             }
@@ -394,18 +422,11 @@ struct BookCard: View {
             .animation(Motion.hover, value: hovering)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.semibold)).lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(state.author ?? book.format.displayName).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                if state.status == .reading {
-                    ProgressView(value: state.progress)
-                        .progressViewStyle(.linear)
-                        .tint(Color(hex: "#C96442"))
-                        .controlSize(.mini)
-                        .padding(.top, 3)
-                }
+                Text(title).font(.body.weight(.semibold)).lineLimit(2, reservesSpace: true)
+                Text(state.author ?? " ").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                ReadingProgressBar(value: state.progress, height: 3)
+                    .opacity(state.status == .reading ? 1 : 0)
+                    .padding(.top, 5)
             }
             .frame(width: width, alignment: .leading)
         }
@@ -433,8 +454,12 @@ struct BookCard: View {
             Image(systemName: "icloud.and.arrow.down").font(.caption.weight(.semibold))
                 .padding(6).glassSurface(in: .circle)
         } else if state.status == .finished {
-            Image(systemName: "checkmark").font(.caption.weight(.bold))
-                .padding(6).glassSurface(in: .circle, tint: .green.opacity(0.5))
+            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.black.opacity(0.75))
+                .padding(5).background(.white, in: .circle)
+                .overlay(Circle().strokeBorder(.black.opacity(0.14), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                .offset(x: 12, y: 12)
         }
     }
 }
@@ -442,6 +467,7 @@ struct BookCard: View {
 private struct HomeView: View {
     let open: (BookRecord) -> Void
     let menu: (BookRecord) -> AnyView
+    let seeAll: (LibrarySection) -> Void
     @State private var library = LibraryStore.shared
 
     var body: some View {
@@ -457,12 +483,13 @@ private struct HomeView: View {
                         .contextMenu { menu(current) }
                 }
                 if reading.count > 1 {
-                    Shelf(title: "Continue Reading", books: Array(reading.dropFirst().prefix(14)), open: open, menu: menu)
+                    Shelf(title: "Continue Reading", books: Array(reading.dropFirst().prefix(14)), open: open, menu: menu, seeAll: { seeAll(.reading) })
                 }
-                Shelf(title: "Recently Added", books: Array(recentlyAdded), open: open, menu: menu)
+                Shelf(title: "Recently Added", books: Array(recentlyAdded), open: open, menu: menu, seeAll: { seeAll(.all) })
             }
             .padding(.vertical, 24)
         }
+        .hiddenTopScrollEdge()
     }
 }
 
@@ -473,76 +500,97 @@ private struct HeroCard: View {
 
     var body: some View {
         let state = library.state(book.id)
-        let title = state.title ?? book.url.deletingPathExtension().lastPathComponent
-        ZStack {
-            CoverWash(bookID: book.id, title: title)
-                .opacity(0.6)
-                .overlay(LinearGradient(colors: [.black.opacity(0.0), .black.opacity(0.25)], startPoint: .leading, endPoint: .trailing))
-                .clipped()
-            HStack(spacing: 30) {
-                CoverView(bookID: book.id, title: title, author: state.author)
-                    .frame(width: 150, height: 225)
-                    .background {
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(.black)
-                            .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
-                    }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("CONTINUE READING").font(.subheadline.weight(.bold)).tracking(1.2).foregroundStyle(.secondary)
-                    Text(title).font(.system(size: 30, weight: .semibold, design: .serif)).lineLimit(2)
-                    if let author = state.author { Text(author).font(.title3).foregroundStyle(.secondary) }
-                    if let label = state.position?.label {
-                        Text(label).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    HStack(spacing: 12) {
-                        ProgressView(value: state.progress).tint(Color(hex: "#C96442")).frame(maxWidth: 220)
-                        Text("\(Int((state.progress * 100).rounded()))%").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                    }
+        let title = (state.title ?? book.url.deletingPathExtension().lastPathComponent).mainTitle
+        HStack(alignment: .top, spacing: 32) {
+            CoverView(bookID: book.id, title: title, author: state.author, shadowOpacity: 0.3, shadowRadius: 18, shadowY: 10)
+                .frame(width: 150, height: 225)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.system(size: 34, weight: .semibold, design: .serif)).lineLimit(2).padding(.top, 10)
+                if let author = state.author { Text(author).font(.title3).foregroundStyle(.secondary) }
+                if let label = state.position?.label {
+                    Text(label).font(.body).foregroundStyle(.secondary).lineLimit(1).padding(.top, 4)
+                }
+                ReadingProgressBar(value: state.progress, height: 5).frame(maxWidth: 340).padding(.top, 6)
+                HStack(spacing: 14) {
                     Button(action: open) {
-                        Label("Resume", systemImage: "book.fill").font(.headline).padding(.horizontal, 6)
+                        Text("Resume").font(.headline).padding(.horizontal, 8)
                     }
                     .glassProminentButtonStyle()
-                    .tint(Color(hex: "#C96442"))
+                    .tint(Color.brand)
                     .controlSize(.large)
-                    .padding(.top, 6)
+                    Text(summary(state)).font(.callout).foregroundStyle(.secondary)
                 }
-                Spacer()
+                .padding(.top, 12)
             }
-            .padding(30)
+            Spacer(minLength: 0)
         }
-        .frame(height: 285)
-        .glassSurface(in: .rect(cornerRadius: 28))
-        .clipShape(.rect(cornerRadius: 28))
         .padding(.horizontal, 30)
+        .padding(.top, 8)
         .onTapGesture(count: 2, perform: open)
+    }
+
+    private func summary(_ state: ReadingState) -> String {
+        var parts = ["\(Int((state.progress * 100).rounded()))% read"]
+        let highlights = state.liveHighlights.count, bookmarks = state.liveBookmarks.count
+        if highlights > 0 { parts.append("\(highlights) highlight\(highlights == 1 ? "" : "s")") }
+        if bookmarks > 0 { parts.append("\(bookmarks) bookmark\(bookmarks == 1 ? "" : "s")") }
+        return parts.joined(separator: ", ")
     }
 }
 
+/// The card grid every library view shares: whole cards that fill the width.
+private struct CardMetrics {
+    static let inset: CGFloat = 30
+    static let gap: CGFloat = 24
+    private static let minimumCard: CGFloat = 140
+    private static let maximumCard: CGFloat = 170
+
+    let count: Int
+    let card: CGFloat
+
+    init(available: CGFloat) {
+        let room = max(0, available - Self.inset * 2)
+        count = max(1, Int((room + Self.gap) / (Self.minimumCard + Self.gap)))
+        card = min(Self.maximumCard, max(Self.minimumCard, (room - Self.gap * CGFloat(count - 1)) / CGFloat(count)))
+    }
+}
+
+/// One row of whole covers sized to fill the width; the rest are a click away through See All.
 private struct Shelf: View {
     let title: String
     let books: [BookRecord]
     let open: (BookRecord) -> Void
     let menu: (BookRecord) -> AnyView
+    var seeAll: (() -> Void)?
+    @State private var available: CGFloat = 0
 
     var body: some View {
+        let metrics = CardMetrics(available: available)
         if !books.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text(title).font(.system(.title2, design: .serif).weight(.semibold)).padding(.horizontal, 30)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 26) {
-                        ForEach(books) { book in
-                            BookCard(book: book, width: 128)
-                                .onTapGesture { open(book) }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityAction { open(book) }
-                                .contextMenu { menu(book) }
-                                .draggable(book.id)
-                        }
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).font(.system(.title2, design: .serif).weight(.semibold))
+                    Spacer()
+                    if let seeAll, books.count > metrics.count {
+                        Button("See All", action: seeAll).buttonStyle(.plain).foregroundStyle(Color.brand).font(.body.weight(.medium))
                     }
-                    .padding(.horizontal, 30)
-                    .padding(.vertical, 10)
                 }
+                .padding(.horizontal, CardMetrics.inset)
+                HStack(alignment: .top, spacing: CardMetrics.gap) {
+                    ForEach(books.prefix(metrics.count)) { book in
+                        BookCard(book: book, width: metrics.card)
+                            .onTapGesture { open(book) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { open(book) }
+                            .contextMenu { menu(book) }
+                            .draggable(book.id)
+                    }
+                }
+                .padding(.horizontal, CardMetrics.inset)
+                .padding(.vertical, 6)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
         }
     }
 }

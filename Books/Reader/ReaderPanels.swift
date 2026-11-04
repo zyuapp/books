@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SidePanel: View {
-    static let width: CGFloat = 330
+    static let width: CGFloat = 344
     static let edgeInset: CGFloat = 12
     /// Clears the window edge, including what glass draws outside the panel's frame.
     static var closedOffset: CGFloat { width + edgeInset + 30 }
@@ -14,16 +14,30 @@ struct SidePanel: View {
     /// Keeps showing the last panel while sliding out.
     private var shown: ReaderPanel { model.panel ?? lastPanel }
 
+    private enum Segment: Hashable { case contents, highlights, bookmarks, search }
+
+    private var segment: Segment {
+        switch shown {
+        case .contents: .contents
+        case .notes: model.notesTab == 0 ? .highlights : .bookmarks
+        case .search: .search
+        }
+    }
+
+    private func select(_ segment: Segment) {
+        switch segment {
+        case .contents: model.panel = .contents
+        case .highlights: model.notesTab = 0; model.panel = .notes
+        case .bookmarks: model.notesTab = 1; model.panel = .notes
+        case .search: model.panel = .search
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: Binding(get: { shown }, set: { model.panel = $0 })) {
-                Text("Contents").tag(ReaderPanel.contents)
-                Text("Notes").tag(ReaderPanel.notes)
-                Text("Search").tag(ReaderPanel.search)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(14)
+            PillPicker(selection: Binding(get: { segment }, set: select),
+                       options: [(.contents, "Contents"), (.highlights, "Highlights"), (.bookmarks, "Bookmarks"), (.search, "Search")])
+                .padding(12)
 
             switch shown {
             case .contents: ContentsList(model: model)
@@ -33,10 +47,8 @@ struct SidePanel: View {
         }
         .transaction { $0.animation = nil }
         .frame(width: Self.width)
-        .glassSurface(in: .rect(cornerRadius: 26),
-                      tint: ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor.opacity(0.6))
+        .readerPanelSurface(ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark))
         .readerOverlay()
-        .glassShadow(radius: 30, y: 10)
         .onChange(of: model.panel) { _, panel in
             if let panel { lastPanel = panel }
         }
@@ -51,16 +63,16 @@ private struct ContentsList: View {
 
     var body: some View {
         let current = model.publication?.tocEntry(forSpineIndex: model.location.index)?.id
+        BookHeader(model: model).padding(.horizontal, 10).padding(.bottom, 4)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    BookHeader(model: model).padding(.bottom, 10)
                     ForEach(rows) { row in
                         Button { model.go(to: row.entry) } label: {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(row.entry.title)
-                                    .font(.system(row.depth == 0 ? .body : .callout, design: .serif).weight(row.entry.id == current ? .semibold : .regular))
-                                    .foregroundStyle(row.entry.id == current ? Color.accentColor : .primary)
+                                    .font(.system(size: row.depth == 0 ? 13.5 : 12.5).weight(row.entry.id == current ? .semibold : .regular))
+                                    .foregroundStyle(row.entry.id == current ? Color.brand : .primary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
                                 Spacer(minLength: 8)
@@ -72,7 +84,7 @@ private struct ContentsList: View {
                             .padding(.vertical, 7)
                             .padding(.horizontal, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(row.entry.id == current ? Color.accentColor.opacity(0.12) : .clear, in: .rect(cornerRadius: 10))
+                            .background(row.entry.id == current ? Color.brand.opacity(0.12) : .clear, in: .rect(cornerRadius: 10))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -80,9 +92,11 @@ private struct ContentsList: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.bottom, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 56)
             }
             .softScrollEdges(.all)
+            .verticalEdgeFade(22)
             .onChange(of: model.publication == nil, initial: true) {
                 rows = flatten(model.publication?.toc ?? [])
             }
@@ -121,7 +135,7 @@ private struct BookHeader: View {
                     Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Text("\(Int((model.location.totalProgress * 100).rounded()))% read")
-                    .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                    .font(.callout.weight(.medium)).foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -133,15 +147,15 @@ private struct BookHeader: View {
 
 private struct NotesList: View {
     let model: ReaderModel
-    @State private var tab = 0
 
     var body: some View {
         let highlights = model.state.liveHighlights.sorted { ($0.locator.totalProgress, $0.range?.start ?? 0) < ($1.locator.totalProgress, $1.range?.start ?? 0) }
         let bookmarks = model.state.liveBookmarks.sorted { $0.locator.totalProgress < $1.locator.totalProgress }
+        let showsHighlights = model.notesTab == 0
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                chip("Highlights", tag: 0)
-                chip("Bookmarks", tag: 1)
+                Text(showsHighlights ? count(highlights.count, "highlight") : count(bookmarks.count, "bookmark"))
+                    .font(.callout.weight(.medium)).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Menu {
                     Button("Copy All as Markdown") { exportMarkdown() }
@@ -149,7 +163,7 @@ private struct NotesList: View {
                     Image(systemName: "square.and.arrow.up")
                         .font(.body.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 28, height: 24)
                         .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
@@ -157,14 +171,22 @@ private struct NotesList: View {
                 .fixedSize()
                 .tooltip("Export")
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 4)
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if tab == 0 {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if showsHighlights {
                         if highlights.isEmpty { empty("No highlights yet", "Select text to highlight it or add a note.") }
-                        ForEach(highlights) { h in HighlightRow(model: model, highlight: h) }
+                        ForEach(Array(highlights.enumerated()), id: \.element.id) { i, h in
+                            if i == 0 || highlights[i - 1].locator.label != h.locator.label, let chapter = h.locator.label {
+                                Text(chapter)
+                                    .font(.callout.weight(.semibold)).lineLimit(1)
+                                    .padding(.top, i == 0 ? 6 : 16).padding(.bottom, 2)
+                            }
+                            HighlightRow(model: model, highlight: h)
+                            Divider().opacity(0.6)
+                        }
                     } else {
                         if bookmarks.isEmpty { empty("No bookmarks yet", "Press ⌘D to bookmark the current page.") }
                         ForEach(bookmarks) { b in
@@ -172,49 +194,36 @@ private struct NotesList: View {
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "bookmark.fill").foregroundStyle(Color(hex: "#E25B45"))
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(b.snippet).font(.system(.body, design: .serif)).lineLimit(3).multilineTextAlignment(.leading)
-                                        Text("\(ReaderModel.describe(b.locator, publication: model.publication)) · \(b.created.formatted(date: .abbreviated, time: .omitted))")
-                                            .font(.subheadline).foregroundStyle(.secondary)
+                                        Text(b.snippet).font(.custom("Charter", size: 14)).lineLimit(3).multilineTextAlignment(.leading)
+                                        Text(ReaderModel.describe(b.locator, publication: model.publication))
+                                            .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(b.created.formatted(date: .abbreviated, time: .omitted))
+                                            .font(.callout).foregroundStyle(.secondary)
                                     }
                                     Spacer(minLength: 0)
                                 }
-                                .padding(12)
-                                .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
+                                .padding(.vertical, 10)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .contextMenu { Button("Delete Bookmark", role: .destructive) { model.deleteBookmark(b.id) } }
+                            Divider().opacity(0.6)
                         }
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 14)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 56)
             }
             .softScrollEdges(.all)
+            .verticalEdgeFade()
         }
     }
 
-    private func chip(_ title: String, tag: Int) -> some View {
-        let selected = tab == tag
-        return Button { tab = tag } label: {
-            Text(title)
-                .font(.subheadline.weight(selected ? .semibold : .medium))
-                .foregroundStyle(selected ? .primary : .secondary)
-                .padding(.horizontal, 11)
-                .frame(height: 28)
-                .background(selected ? AnyShapeStyle(.quaternary.opacity(0.6)) : AnyShapeStyle(.clear), in: .capsule)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
+    private func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
 
     private func empty(_ title: String, _ detail: String) -> some View {
-        VStack(spacing: 6) {
-            Text(title).font(.headline)
-            Text(detail).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 40)
+        EmptyStateView(symbol: model.notesTab == 0 ? "highlighter" : "bookmark", title: title, detail: detail)
+            .padding(.top, 20)
     }
 
     private func exportMarkdown() {
@@ -234,23 +243,22 @@ private struct HighlightRow: View {
                 VStack(alignment: .leading, spacing: 6) {
                     let note = highlight.note.flatMap { $0.isEmpty ? nil : $0 }
                     Text(highlight.text)
-                        .font(.system(.body, design: .serif))
-                        .foregroundStyle(note == nil ? .primary : .secondary)
-                        .lineLimit(note == nil ? 5 : 3)
+                        .font(.custom("Charter", size: 14))
+                        .lineLimit(5)
                         .multilineTextAlignment(.leading)
                     if let note {
                         Text(note)
                             .font(.body)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(ReaderModel.describe(highlight.locator, publication: model.publication))
-                        .font(.subheadline).foregroundStyle(.tertiary)
+                    Text("\(Int((highlight.locator.totalProgress * 100).rounded()))%")
+                        .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(12)
-            .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -303,32 +311,35 @@ private struct SearchPanel: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if !model.searchResults.isEmpty {
                             Text("\(model.searchResults.count)\(model.searchResults.count >= 500 ? "+" : "") results")
-                                .font(.subheadline.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 4)
+                                .font(.callout.weight(.medium)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 4).padding(.bottom, 6)
                         }
-                        ForEach(model.searchResults) { r in
+                        ForEach(Array(model.searchResults.enumerated()), id: \.element.id) { i, r in
+                            if i == 0 || model.searchResults[i - 1].chapter != r.chapter, !r.chapter.isEmpty {
+                                Text(r.chapter)
+                                    .font(.callout.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                                    .padding(.horizontal, 4).padding(.top, i == 0 ? 4 : 16).padding(.bottom, 4)
+                            }
                             Button { model.reveal(r) } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    if !r.chapter.isEmpty {
-                                        Text(r.chapter).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Text(r.snippet).font(.system(.body, design: .serif)).foregroundStyle(.secondary).lineLimit(3)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 12))
-                                .contentShape(Rectangle())
+                                Text(r.snippet).font(.custom("Charter", size: 14)).foregroundStyle(.primary.opacity(0.85)).lineLimit(3)
+                                    .multilineTextAlignment(.leading)
+                                    .padding(.horizontal, 4).padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            Divider().opacity(0.5)
                         }
                     }
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 14)
+                    .padding(.top, 8)
+                    .padding(.bottom, 56)
                 }
                 .softScrollEdges(.all)
+                .verticalEdgeFade()
             }
         }
         .onAppear { DispatchQueue.main.async { focused = true } }
@@ -346,89 +357,130 @@ struct ReaderSettingsPopover: View {
     var body: some View {
         @Bindable var s = settings
         VStack(alignment: .leading, spacing: 16) {
-            themeGrid
+            ThemeGrid()
+            Divider().opacity(0.6)
 
             if kind == .reflowable {
                 HStack(spacing: 10) {
                     Button { s.prefs.fontSize = max(12, s.prefs.fontSize - 1) } label: {
                         Text("A").font(.system(size: 13, design: .serif)).frame(maxWidth: .infinity, minHeight: 26)
+                            .background(.primary.opacity(0.07), in: .capsule).contentShape(Capsule())
                     }
-                    Text("\(Int(s.prefs.fontSize))").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 28)
+                    Text("\(Int(s.prefs.fontSize)) pt").font(.body.monospacedDigit()).foregroundStyle(.secondary).fixedSize()
                     Button { s.prefs.fontSize = min(40, s.prefs.fontSize + 1) } label: {
                         Text("A").font(.system(size: 21, design: .serif)).frame(maxWidth: .infinity, minHeight: 26)
+                            .background(.primary.opacity(0.07), in: .capsule).contentShape(Capsule())
                     }
                 }
-                .glassButtonStyle()
+                .buttonStyle(.plain)
 
                 row("Font") {
-                    Picker("Font", selection: $s.prefs.fontID) {
-                        ForEach(ReaderFont.all) { f in
-                            Text(f.name).font(f.preview(size: 13)).tag(f.id)
+                    Menu {
+                        Picker("Font", selection: $s.prefs.fontID) {
+                            ForEach(ReaderFont.all) { f in
+                                Text(f.name).font(f.preview(size: 13)).tag(f.id)
+                            }
                         }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } label: {
+                        HStack {
+                            Text(ReaderFont.named(s.prefs.fontID).name)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 26)
+                        .background(.primary.opacity(0.07), in: .capsule)
+                        .contentShape(Capsule())
                     }
-                    .labelsHidden()
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .accessibilityLabel("Font")
                 }
-                row("Spacing") { slider("Line Spacing", value: $s.prefs.lineHeight, range: 1.1...2.2) }
-                row("Margins") { slider("Margins", value: $s.prefs.margin, range: 16...140) }
-
-                HStack {
-                    Toggle("Justify", isOn: $s.prefs.justify)
-                    Spacer()
-                    Toggle("Hyphenate", isOn: $s.prefs.hyphenate)
+                row("Spacing") {
+                    slider("Line Spacing", value: $s.prefs.lineHeight, range: 1.1...2.2, readout: String(format: "%.2f×", s.prefs.lineHeight))
                 }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                row("Margins") {
+                    slider("Margins", value: $s.prefs.margin, range: 16...140, readout: "\(Int(s.prefs.margin)) pt")
+                }
+                switchRow("Justify", isOn: $s.prefs.justify)
+                switchRow("Hyphenate", isOn: $s.prefs.hyphenate)
+                Divider().opacity(0.6)
             }
 
             if kind == .pdf, let reader {
                 HStack(spacing: 10) {
                     Button { reader.engine?.zoom(by: -1) } label: {
                         Image(systemName: "minus.magnifyingglass").frame(maxWidth: .infinity, minHeight: 26)
+                            .background(.primary.opacity(0.07), in: .capsule).contentShape(Capsule())
                     }
                     .help("Zoom Out (⌘−)")
                     Button { reader.engine?.zoom(by: 0) } label: {
-                        Text(reader.zoomPercent.map { "\($0)%" } ?? "Fit").font(.callout.monospacedDigit()).frame(width: 52, height: 26)
+                        Text(reader.zoomPercent.map { "\($0)%" } ?? "Fit").font(.callout.monospacedDigit()).frame(maxWidth: .infinity, minHeight: 26)
+                            .background(.primary.opacity(0.07), in: .capsule).contentShape(Capsule())
                     }
                     .help("Fit to Window (⌘0)")
                     Button { reader.engine?.zoom(by: 1) } label: {
                         Image(systemName: "plus.magnifyingglass").frame(maxWidth: .infinity, minHeight: 26)
+                            .background(.primary.opacity(0.07), in: .capsule).contentShape(Capsule())
                     }
                     .help("Zoom In (⌘+)")
                 }
-                .glassButtonStyle()
+                .buttonStyle(.plain)
             }
 
             if kind != .comic {
                 row("Layout") {
-                    Picker("Layout", selection: $s.prefs.layout) {
-                        ForEach(PageLayout.allCases) { Text($0.name).tag($0) }
-                    }
-                    .pickerStyle(.segmented).labelsHidden()
+                    PillPicker(selection: $s.prefs.layout, options: PageLayout.allCases.map { ($0, $0.name) })
                 }
             }
             row("Pages") {
-                Picker("Pages", selection: $s.prefs.spread) {
-                    ForEach(SpreadMode.allCases) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden()
+                PillPicker(selection: $s.prefs.spread, options: SpreadMode.allCases.map { ($0, $0.name) })
             }
 
             if kind == .pdf {
-                Toggle("Dim pages in dark themes", isOn: $s.prefs.dimPDFInDarkThemes).controlSize(.small)
+                switchRow("Invert pages in dark themes", isOn: $s.prefs.dimPDFInDarkThemes)
             }
             if kind == .comic {
-                Toggle("Right-to-left (manga)", isOn: Binding(
+                switchRow("Right-to-left (manga)", isOn: Binding(
                     get: { s.prefs.comicRightToLeft ?? false },
                     set: { s.prefs.comicRightToLeft = $0 }
-                )).controlSize(.small)
+                ))
             }
         }
         .padding(18)
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(width: 360)
     }
 
-    private var themeGrid: some View {
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 10) {
+            Text(label).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+            content().frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, readout: String) -> some View {
+        HStack(spacing: 8) {
+            Slider(value: value, in: range).accessibilityLabel(title).controlSize(.small).tint(Color.brand)
+            Text(readout).font(.body.monospacedDigit()).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func switchRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.secondary)
+            Spacer()
+            Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Color.brand)
+        }
+    }
+}
+
+struct ThemeGrid: View {
+    @State private var settings = ReaderSettings.shared
+
+    var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
             ForEach(ReaderTheme.allCases) { theme in
                 let resolved = theme.resolved(dark: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
@@ -445,31 +497,22 @@ struct ReaderSettingsPopover: View {
                             }
                             Text("Aa")
                                 .font(.system(size: 15, weight: .medium, design: .serif))
-                                .foregroundStyle(theme == .auto ? Color.gray : resolved.foregroundColor)
+                                .foregroundStyle(theme == .auto ? Color.white : resolved.foregroundColor)
+                                .blendMode(theme == .auto ? .difference : .normal)
                         }
+                        .compositingGroup()
                         .frame(height: 40)
                         .clipShape(.rect(cornerRadius: 10))
                         .overlay {
                             RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(settings.prefs.theme == theme ? Color.accentColor : .primary.opacity(0.12),
+                                .strokeBorder(settings.prefs.theme == theme ? Color.brand : .primary.opacity(0.25),
                                               lineWidth: settings.prefs.theme == theme ? 2.5 : 1)
                         }
-                        Text(theme.name).font(.subheadline).foregroundStyle(.secondary)
+                        Text(theme.name).font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 10) {
-            Text(label).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
-            content().frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        Slider(value: value, in: range).accessibilityLabel(title).controlSize(.small).tint(Color(hex: "#C96442"))
     }
 }

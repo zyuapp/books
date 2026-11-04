@@ -130,7 +130,7 @@ struct ReaderPreferences: Codable, Equatable {
     var fontSize: Double = 19
     var lineHeight: Double = 1.55
     var margin: Double = 56
-    var justify = true
+    var justify = false
     var hyphenate = true
     var layout: PageLayout = .paginated
     var spread: SpreadMode = .auto

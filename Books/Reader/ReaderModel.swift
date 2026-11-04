@@ -81,6 +81,8 @@ final class ReaderModel {
     var pagesInChapter = 1
 
     var panel: ReaderPanel?
+    /// Which list the notes panel shows: 0 highlights, 1 bookmarks.
+    var notesTab = 0
     var showClaude = false
     var claudeShowsHistory = false
     var claudeExpanded = UserDefaults.standard.object(forKey: "claudeExpanded") as? Bool ?? true {
@@ -336,6 +338,10 @@ final class ReaderModel {
 
     /// Closes the side panel; returns false when none was open.
     func dismissPanel() -> Bool {
+        if showSettings {
+            showSettings = false
+            return true
+        }
         guard panel != nil else { return false }
         panel = nil
         return true

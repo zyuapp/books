@@ -96,7 +96,7 @@ struct ComicReaderView: View {
         GeometryReader { geo in
             let spread = prefs.spread == .double || (prefs.spread == .auto && geo.size.width > geo.size.height * 1.15)
             let pages = engine.rightToLeft ? engine.visiblePages.reversed() : engine.visiblePages
-            HStack(spacing: 0) {
+            HStack(spacing: 16) {
                 ForEach(pages, id: \.self) { i in
                     if let img = engine.image(i) {
                         Image(nsImage: img)
@@ -107,7 +107,8 @@ struct ComicReaderView: View {
                     }
                 }
             }
-            .padding(.vertical, 28)
+            .padding(.top, model.chromeVisible ? 72 : 20)
+            .padding(.bottom, model.chromeVisible ? 76 : 20)
             .frame(width: geo.size.width, height: geo.size.height)
             .id(engine.visiblePages.first)
             .transition(.opacity)

@@ -2,13 +2,48 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    private enum Tab: String, CaseIterable {
+        case general = "General", reading = "Reading", claude = "Claude"
+        var symbol: String {
+            switch self {
+            case .general: "gearshape"
+            case .reading: "textformat.size"
+            case .claude: "sparkles"
+            }
+        }
+    }
+
+    @State private var tab = Tab.general
+
     var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            ReadingSettingsTab().tabItem { Label("Reading", systemImage: "textformat.size") }
-            ClaudeSettings().tabItem { Label("Claude", systemImage: "sparkles") }
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(Tab.allCases, id: \.self) { item in
+                    let selected = item == tab
+                    Button { tab = item } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: item.symbol).font(.system(size: 17)).frame(height: 20)
+                            Text(item.rawValue).font(.callout)
+                        }
+                        .foregroundStyle(selected ? Color.brand : Color.secondary)
+                        .frame(width: 72, height: 48)
+                        .background(.primary.opacity(selected ? 0.07 : 0), in: .rect(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 8)
+            Divider()
+            switch tab {
+            case .general: GeneralSettings()
+            case .reading: ReadingSettingsTab()
+            case .claude: ClaudeSettings()
+            }
         }
         .frame(width: 500)
+        .navigationTitle(tab.rawValue)
     }
 }
 
@@ -30,7 +65,7 @@ private struct GeneralSettings: View {
                             .controlSize(.small)
                     }
                 }
-                Toggle("Copy opened books into the library", isOn: $autoCopy)
+                Toggle("Copy opened books into the library", isOn: $autoCopy).tint(Color.brand)
             } header: {
                 Text("Library")
             } footer: {
@@ -62,9 +97,49 @@ private struct GeneralSettings: View {
 }
 
 private struct ReadingSettingsTab: View {
+    @State private var settings = ReaderSettings.shared
+
     var body: some View {
-        ReaderSettingsPopover(kind: .reflowable)
-            .frame(maxWidth: .infinity)
+        @Bindable var s = settings
+        Form {
+            Section("Theme") {
+                ThemeGrid().padding(.vertical, 4)
+            }
+            Section("Text") {
+                Picker("Font", selection: $s.prefs.fontID) {
+                    ForEach(ReaderFont.all) { Text($0.name).tag($0.id) }
+                }
+                LabeledContent("Size") {
+                    HStack(spacing: 8) {
+                        Text("\(Int(s.prefs.fontSize)) pt").monospacedDigit()
+                        Stepper("Size", value: $s.prefs.fontSize, in: 12...40).labelsHidden()
+                    }
+                }
+                LabeledContent("Spacing") {
+                    HStack(spacing: 8) {
+                        Slider(value: $s.prefs.lineHeight, in: 1.1...2.2).labelsHidden().frame(width: 180).tint(Color.brand)
+                        Text(String(format: "%.2f×", s.prefs.lineHeight)).monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                LabeledContent("Margins") {
+                    HStack(spacing: 8) {
+                        Slider(value: $s.prefs.margin, in: 16...140).labelsHidden().frame(width: 180).tint(Color.brand)
+                        Text("\(Int(s.prefs.margin)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
+                    }
+                }
+                Toggle("Justify", isOn: $s.prefs.justify).tint(Color.brand)
+                Toggle("Hyphenate", isOn: $s.prefs.hyphenate).tint(Color.brand)
+            }
+            Section("Layout") {
+                LabeledContent("Layout") {
+                    PillPicker(selection: $s.prefs.layout, options: PageLayout.allCases.map { ($0, $0.name) }).frame(width: 230)
+                }
+                LabeledContent("Pages") {
+                    PillPicker(selection: $s.prefs.spread, options: SpreadMode.allCases.map { ($0, $0.name) }).frame(width: 230)
+                }
+            }
+        }
+        .settingsTab()
     }
 }
 
@@ -89,7 +164,7 @@ private struct ClaudeSettings: View {
                         Button(testing ? "Testing…" : "Test") { test() }.disabled(testing || detected == nil)
                     }
                 }
-                TextField("Custom path", text: $path, prompt: Text("Auto-detect"))
+                TextField("Custom path", text: $path, prompt: Text("Auto-detect")).textFieldStyle(.roundedBorder)
             } header: {
                 Text("Connection")
             } footer: {
@@ -104,16 +179,13 @@ private struct ClaudeSettings: View {
                     ForEach(ClaudeEffort.allCases) { Text($0.name).tag($0.rawValue) }
                 }
             }
-            Section {
+            Section("Chat") {
                 Picker("Font", selection: $chatFont) {
                     ForEach(ChatFont.allCases) { Text($0.name).tag($0) }
                 }
                 Picker("Text size", selection: $chatTextSize) {
                     ForEach(ChatTextSize.options, id: \.size) { Text($0.name).tag($0.size) }
                 }
-            } header: {
-                Text("Chat")
-            } footer: {
                 Text("The quick brown fox jumps over the lazy dog.")
                     .font(chatFont.font(chatTextSize))
                     .foregroundStyle(.secondary)

@@ -68,8 +68,13 @@ final class PDFEngine: NSObject, ReaderEngine {
         pdfView.postsFrameChangedNotifications = true
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.fitPages()
-                DispatchQueue.main.async { self?.restorePageIfSized() }
+                guard let self else { return }
+                let isTwoUp = self.pdfView.displayMode == .twoUp || self.pdfView.displayMode == .twoUpContinuous
+                if ReaderSettings.shared.prefs.spread == .auto, isTwoUp != (self.pdfView.bounds.width > Self.twoUpWidth) {
+                    self.applySettings()
+                }
+                self.fitPages()
+                DispatchQueue.main.async { self.restorePageIfSized() }
             }
         })
         observers.append(center.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self] _ in
@@ -141,12 +146,15 @@ final class PDFEngine: NSObject, ReaderEngine {
         for o in observers { NotificationCenter.default.removeObserver(o) }
     }
 
+    /// Above this width, automatic spreads show two pages at a comfortable size.
+    private static let twoUpWidth: CGFloat = 1100
+
     func applySettings() {
         let p = ReaderSettings.shared.prefs
         lastPrefs = p
         let theme = p.theme.resolved(dark: isDark)
         let width = pdfView.bounds.width
-        let twoUp = p.spread == .double || (p.spread == .auto && width > 1400)
+        let twoUp = p.spread == .double || (p.spread == .auto && width > Self.twoUpWidth)
         switch p.layout {
         case .paginated: pdfView.displayMode = twoUp ? .twoUp : .singlePage
         case .scroll: pdfView.displayMode = twoUp ? .twoUpContinuous : .singlePageContinuous
@@ -156,9 +164,11 @@ final class PDFEngine: NSObject, ReaderEngine {
         let layoutChanged = pdfView.isPaginated != (p.layout == .paginated) || lastDisplayMode != pdfView.displayMode
         lastDisplayMode = pdfView.displayMode
         pdfView.isPaginated = p.layout == .paginated
+        if !pdfView.isPaginated { restoreTrimmedPages() }
         applyEdgeInsets()
         fitPages(force: layoutChanged || (fittedScale == nil && !userZoomed))
         applyDimming(p.dimPDFInDarkThemes && theme.isDark)
+        softenPages(theme.isDark && !p.dimPDFInDarkThemes)
         pdfView.backgroundColor = isDimmed ? paper.inverted : paper
         pdfView.pageShadowsEnabled = !isDimmed
     }
@@ -189,6 +199,25 @@ final class PDFEngine: NSObject, ReaderEngine {
         return view
     }()
 
+    /// Tones white pages to warm paper in dark themes.
+    private let softenOverlay: NSView = {
+        let view = PassthroughView()
+        view.autoresizingMask = [.width, .height]
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor(hex: "#E8E6E1").cgColor
+        view.layer?.compositingFilter = "multiplyBlendMode"
+        return view
+    }()
+
+    private func softenPages(_ on: Bool) {
+        if on {
+            softenOverlay.frame = pdfView.bounds
+            if softenOverlay.superview == nil { pdfView.addSubview(softenOverlay, positioned: .above, relativeTo: nil) }
+        } else {
+            softenOverlay.removeFromSuperview()
+        }
+    }
+
     private func applyDimming(_ on: Bool) {
         guard on != isDimmed, let document else { return }
         isDimmed = on
@@ -216,6 +245,77 @@ final class PDFEngine: NSObject, ReaderEngine {
     /// `scrollPosition` when each page was last turned away from, by page index.
     private var leftScrollPositions: [Int: CGPoint] = [:]
     private var lastDisplayMode: PDFDisplayMode?
+
+    // MARK: Margin trimming
+
+    /// Measured on a separate copy of the document, so pages' dimming and draw callbacks stay out of it.
+    private lazy var measuredDocument = PDFDocument(url: publication.sourceURL)
+    /// The part of a page, as fractions of its size, that holds content on the pages sampled.
+    private lazy var sharedContent: CGRect? = sampleSharedContent()
+    private var trimChecked: Set<Int> = []
+    private var untrimmedBounds: [Int: CGRect] = [:]
+
+    private func sampleSharedContent() -> CGRect? {
+        guard let document = measuredDocument, document.pageCount >= 8 else { return nil }
+        let count = document.pageCount
+        let step = max(1, count * 8 / 10 / 10)
+        var union: CGRect?
+        for i in stride(from: count / 10, to: count * 9 / 10, by: step) {
+            guard let rect = contentRect(ofPage: i) else { continue }
+            union = union?.union(rect) ?? rect
+        }
+        guard let union else { return nil }
+        let padded = union.insetBy(dx: -0.025, dy: -0.025).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return padded.width * padded.height < 0.88 ? padded : nil
+    }
+
+    /// The bounding box of a page's non-white pixels, with its origin at the page's bottom left.
+    private func contentRect(ofPage index: Int) -> CGRect? {
+        guard let page = measuredDocument?.page(at: index),
+              let cg = page.thumbnail(of: NSSize(width: 240, height: 320), for: .cropBox)
+                  .cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let width = cg.width, height = cg.height
+        var pixels = [UInt8](repeating: 255, count: width * height)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[y * width + x] < 225 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        return CGRect(x: CGFloat(minX) / CGFloat(width), y: 1 - CGFloat(maxY + 1) / CGFloat(height),
+                      width: CGFloat(maxX - minX + 1) / CGFloat(width), height: CGFloat(maxY - minY + 1) / CGFloat(height))
+    }
+
+    /// Trims the pages around `index` to the shared content; a page with content outside it keeps its full size.
+    @discardableResult
+    private func trimPages(around index: Int) -> Bool {
+        guard pdfView.isPaginated, let document, let shared = sharedContent else { return false }
+        var changed = false
+        for i in max(0, index - 2)...min(document.pageCount - 1, index + 3) where trimChecked.insert(i).inserted {
+            guard let page = document.page(at: i) else { continue }
+            if let content = contentRect(ofPage: i), !shared.insetBy(dx: -0.01, dy: -0.01).contains(content) { continue }
+            let bounds = page.bounds(for: .cropBox)
+            untrimmedBounds[i] = bounds
+            page.setBounds(CGRect(x: bounds.minX + shared.minX * bounds.width, y: bounds.minY + shared.minY * bounds.height,
+                                  width: shared.width * bounds.width, height: shared.height * bounds.height), for: .cropBox)
+            changed = true
+        }
+        if changed { pdfView.layoutDocumentView() }
+        return changed
+    }
+
+    private func restoreTrimmedPages() {
+        guard let document, !trimChecked.isEmpty else { return }
+        for (i, bounds) in untrimmedBounds { document.page(at: i)?.setBounds(bounds, for: .cropBox) }
+        untrimmedBounds = [:]
+        trimChecked = []
+        pdfView.layoutDocumentView()
+    }
 
     private var userZoomed = false
 
@@ -272,15 +372,16 @@ final class PDFEngine: NSObject, ReaderEngine {
             model?.zoomPercent = nil
             UserDefaults.standard.removeObject(forKey: zoomKey)
         }
-        guard pdfView.isPaginated, let page = pdfView.currentPage ?? document?.page(at: 0) else {
+        guard pdfView.isPaginated, let page = pdfView.currentPage ?? document?.page(at: pageToRestore ?? 0) else {
             pdfView.autoScales = true
             return
         }
+        trimPages(around: document?.index(for: page) ?? 0)
         let size = page.bounds(for: pdfView.displayBox).size
         guard size.width > 0, size.height > 0, pdfView.bounds.width > 0 else { return }
         let columns: CGFloat = pdfView.displayMode == .twoUp ? 2 : 1
         let availableW = pdfView.bounds.width - 60
-        let availableH = pdfView.bounds.height - Self.edgeInsets.top - Self.edgeInsets.bottom - 28
+        let availableH = pdfView.bounds.height - Self.edgeInsets.top - Self.edgeInsets.bottom
         pdfView.autoScales = false
         pdfView.scaleFactor = max(0.1, min(availableW / (size.width * columns), availableH / size.height))
         fittedScale = pdfView.scaleFactor
@@ -294,6 +395,7 @@ final class PDFEngine: NSObject, ReaderEngine {
     private func pageChanged() {
         let count = max(1, document?.pageCount ?? 1)
         let index = currentPageIndex
+        if trimPages(around: index) { fitPages() }
         let visibleLast = pdfView.displayMode == .twoUp || pdfView.displayMode == .twoUpContinuous ? index + 1 : index
         model?.engineDidMove(to: Locator(index: index, progression: 0), page: index, pageCount: count, atEnd: visibleLast >= count - 1)
     }
@@ -518,7 +620,8 @@ nonisolated final class DimmablePDFPage: PDFPage, @unchecked Sendable {
     override func draw(with box: PDFDisplayBox, to context: CGContext) {
         defer { onDraw?() }
         guard isDimmed else { return super.draw(with: box, to: context) }
-        let rect = bounds(for: box)
+        // The whole drawn area: a trimmed page's box doesn't start at the context's origin.
+        let rect = context.boundingBoxOfClipPath
         context.saveGState()
         context.setFillColor(.white)
         context.fill(rect)

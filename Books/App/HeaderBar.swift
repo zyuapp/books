@@ -6,7 +6,7 @@ import SwiftUI
 struct HeaderBar<Leading: View, Trailing: View>: View {
     static var height: CGFloat { 52 }
     /// Room for the window buttons.
-    static var leadingInset: CGFloat { 78 }
+    static var leadingInset: CGFloat { 88 }
 
     var title: String
     var subtitle: String?
@@ -19,15 +19,15 @@ struct HeaderBar<Leading: View, Trailing: View>: View {
         ZStack {
             VStack(spacing: 1) {
                 Text(title)
-                    .font(serif ? .system(.headline, design: .serif) : .headline)
+                    .font(.system(size: 14, weight: .semibold, design: serif ? .serif : .default))
                     .lineLimit(1)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.callout).foregroundStyle(.primary.opacity(0.62)).lineLimit(1)
                 }
             }
             .foregroundStyle(titleColor ?? .primary)
-            .frame(maxWidth: 420)
-            .padding(.horizontal, 300)
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 240)
 
             HStack(spacing: 0) {
                 leading
@@ -78,5 +78,43 @@ struct HeaderSearchField: View {
         .padding(.horizontal, 10)
         .frame(width: 230, height: 30)
         .glassSurface(in: .capsule)
+    }
+}
+
+/// One icon in a `HeaderButtonGroup`.
+struct HeaderButton: View {
+    let symbol: String
+    let label: String
+    var tooltip: String?
+    var active = false
+    var color: Color?
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .fontWeight(.medium)
+                .foregroundStyle(color ?? (active ? Color.brand : Color.primary))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 34, height: 28)
+                .background(active ? Color.brand.opacity(0.16) : Color.primary.opacity(hovering ? 0.08 : 0), in: .capsule)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .tooltip(tooltip ?? label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Header icons sharing one capsule.
+struct HeaderButtonGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 2) { content }
+            .padding(2)
+            .glassSurface(in: .capsule)
     }
 }

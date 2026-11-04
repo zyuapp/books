@@ -361,6 +361,8 @@ final class SystemAppearance {
 }
 
 /// Lets the main window enter full screen (SwiftUI `Window` scenes don't opt in by default) and move by its background.
+private var focusCleared = false
+
 private struct MainWindowSetup: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -375,7 +377,10 @@ private struct MainWindowSetup: NSViewRepresentable {
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.isMovableByWindowBackground = true
         // Keyboard focus starts on nothing rather than on the library's search field.
-        if window.firstResponder is NSTextView, !window.isKeyWindow { window.makeFirstResponder(nil) }
+        if !focusCleared, window.firstResponder is NSTextView {
+            focusCleared = true
+            window.makeFirstResponder(nil)
+        }
     }
 }
 

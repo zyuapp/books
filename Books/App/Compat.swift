@@ -17,16 +17,6 @@ extension View {
         }
     }
 
-    /// Liquid Glass draws its own shadow. A shadow around glass would re-render the whole subtree on every frame it moves.
-    @ViewBuilder
-    func glassShadow(opacity: Double = 0.12, radius: CGFloat, y: CGFloat) -> some View {
-        if #available(macOS 26.0, *) {
-            self
-        } else {
-            shadow(color: .black.opacity(opacity), radius: radius, y: y)
-        }
-    }
-
     @ViewBuilder
     func glassButtonStyle() -> some View {
         if #available(macOS 26.0, *) {
@@ -45,25 +35,22 @@ extension View {
         }
     }
 
+    /// Keeps scrolled content from smearing under the header.
+    @ViewBuilder
+    func hiddenTopScrollEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func softScrollEdges(_ edges: Edge.Set = .all) -> some View {
         if #available(macOS 26.0, *) {
             scrollEdgeEffectStyle(.soft, for: edges)
         } else {
             self
-        }
-    }
-}
-
-struct GlassGroup<Content: View>: View {
-    var spacing: CGFloat
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
         }
     }
 }

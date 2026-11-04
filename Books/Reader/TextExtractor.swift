@@ -18,8 +18,15 @@ struct SearchResult: Identifiable, Hashable {
         let utf8 = text.utf8
         let lower = utf8.index(utf8.startIndex, offsetBy: min(matchOffsets.lowerBound, utf8.count))
         let upper = utf8.index(utf8.startIndex, offsetBy: min(matchOffsets.upperBound, utf8.count))
-        let start = text.index(lower, offsetBy: -60, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(upper, offsetBy: 80, limitedBy: text.endIndex) ?? text.endIndex
+        var start = text.index(lower, offsetBy: -60, limitedBy: text.startIndex) ?? text.startIndex
+        var end = text.index(upper, offsetBy: 80, limitedBy: text.endIndex) ?? text.endIndex
+        // Whole words on both sides of the excerpt.
+        if start > text.startIndex, let space = text[start..<lower].firstIndex(where: \.isWhitespace) {
+            start = text.index(after: space)
+        }
+        if end < text.endIndex, let space = text[upper..<end].lastIndex(where: \.isWhitespace) {
+            end = space
+        }
         var match = AttributedString(String(text[lower..<upper]))
         match.font = .body.bold()
         match.foregroundColor = .primary

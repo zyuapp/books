@@ -1,72 +1,67 @@
-import CoreImage
-import ImageIO
+import AppKit
 import SwiftUI
 
-/// A book cover: the extracted thumbnail, or a typeset cover generated from the title.
+/// A book cover: the extracted thumbnail, or a typeset cover generated from the title. A cover whose shape differs from
+/// its slot fits inside it whole, resting on the slot's bottom edge so a row of covers shares a baseline.
 struct CoverView: View {
     let bookID: String
     let title: String
     let author: String?
     var cornerRadius: CGFloat = 5
+    var shadowOpacity: Double = 0
+    var shadowRadius: CGFloat = 0
+    var shadowY: CGFloat = 0
     @State private var library = LibraryStore.shared
 
-    var body: some View {
-        ZStack {
-            if let image = library.cover(bookID) {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                GeneratedCover(title: title, author: author)
-            }
-            // Spine and page-edge shading.
-            HStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0.28), .white.opacity(0.10), .clear],
-                               startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 10)
-                Spacer()
-            }
-            LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.06)], startPoint: .top, endPoint: .bottom)
-        }
-        .clipShape(.rect(cornerRadius: cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.black.opacity(0.08), lineWidth: 0.5))
-    }
-}
-
-/// A soft colour wash taken from a book's cover. It's a small pre-blurred bitmap, which costs nothing to composite
-/// compared with a live blur re-rendered every frame.
-struct CoverWash: View {
-    let bookID: String
-    let title: String
-    @State private var library = LibraryStore.shared
-    @State private var wash: NSImage?
+    /// Covers this close to the slot's shape fill it; a sliver of cropping is invisible.
+    private static let fillTolerance: CGFloat = 0.04
 
     var body: some View {
-        ZStack {
-            let colors = GeneratedCover.palette(for: title)
-            LinearGradient(colors: [Color(hex: colors.0), Color(hex: colors.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let wash {
-                Image(nsImage: wash)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
+        GeometryReader { slot in
+            let image = library.cover(bookID)
+            let size = coverSize(image, in: slot.size)
+            ZStack {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                } else {
+                    GeneratedCover(title: title, author: author)
+                }
+                // Spine and page-edge shading.
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(0.28), .white.opacity(0.10), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 10)
+                    Spacer()
+                }
+                LinearGradient(colors: [.white.opacity(0.10), .clear, .black.opacity(0.06)], startPoint: .top, endPoint: .bottom)
             }
-        }
-        .task(id: "\(bookID)-\(library.coverVersion)") {
-            let file = library.coverFile(bookID)
-            wash = await Task.detached(priority: .utility) { Self.render(file) }.value
+            .frame(width: size.width, height: size.height)
+            .clipShape(.rect(cornerRadius: cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.black.opacity(0.08), lineWidth: 0.5))
+            .background {
+                if shadowOpacity > 0 {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(.black)
+                        .padding(1)
+                        .shadow(color: .black.opacity(shadowOpacity), radius: shadowRadius, y: shadowY)
+                }
+            }
+            .frame(width: slot.size.width, height: slot.size.height, alignment: .bottomLeading)
         }
     }
 
-    private nonisolated static func render(_ file: URL) -> NSImage? {
-        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 48] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        let input = CIImage(cgImage: thumbnail)
-        let blurred = input.clampedToExtent().applyingGaussianBlur(sigma: 6).cropped(to: input.extent)
-        guard let output = CIContext().createCGImage(blurred, from: input.extent) else { return nil }
-        return NSImage(cgImage: output, size: NSSize(width: output.width, height: output.height))
+    private func coverSize(_ image: NSImage?, in slot: CGSize) -> CGSize {
+        guard let image, image.size.width > 0, image.size.height > 0, slot.height > 0 else { return slot }
+        let aspect = image.size.width / image.size.height, slotAspect = slot.width / slot.height
+        if abs(aspect - slotAspect) / slotAspect <= Self.fillTolerance { return slot }
+        return aspect > slotAspect
+            ? CGSize(width: slot.width, height: slot.width / aspect)
+            : CGSize(width: slot.height * aspect, height: slot.height)
     }
 }
 

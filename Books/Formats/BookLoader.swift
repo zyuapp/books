@@ -54,7 +54,7 @@ enum BookFormat: String, CaseIterable, Codable, Sendable {
 
 /// Parses a book file into a `Publication`, caching the unpacked result per book.
 enum BookLoader {
-    private static let cacheVersion = 8
+    private static let cacheVersion = 10
 
     static var cacheRoot: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

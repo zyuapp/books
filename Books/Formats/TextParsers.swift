@@ -93,10 +93,11 @@ enum TextParser {
         for block in blocks {
             if case .heading(let level, let t) = block {
                 if title == nil && level == 1 { title = Markdown.plain(t) }
-                if level <= splitLevel && !(chapters.count == 1 && chapters[0].blocks.isEmpty) {
+                let onlyDocumentTitle = chapters.count == 1 && chapters[0].blocks.count == 1 && level > 1
+                if level <= splitLevel && !(chapters.count == 1 && chapters[0].blocks.isEmpty) && !onlyDocumentTitle {
                     chapters.append((Markdown.plain(t), [block]))
                     continue
-                } else if level <= splitLevel {
+                } else if level <= splitLevel && !onlyDocumentTitle {
                     chapters[0].title = Markdown.plain(t)
                 }
             }
@@ -117,7 +118,7 @@ enum TextParser {
             }
             let file = dir.appendingPathComponent("md\(i).html")
             let html = HTMLTemplate.document(title: chapter.title, body: body,
-                                             css: "pre { white-space: pre-wrap; } img { max-width: 100%; }")
+                                             css: "pre { white-space: pre-wrap; } img { max-width: 100%; } h1, h2, h3 { text-align: left !important; }")
             try html.write(to: file, atomically: true, encoding: .utf8)
             spine.append(SpineItem(url: file, weight: html.utf8.count))
             toc.append(TOCEntry(title: chapter.title, spineIndex: i, children: subs))

@@ -93,9 +93,9 @@ struct ChatThread: Syncable, Hashable, Sendable {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.hasPrefix("```") { inCode.toggle(); return nil }
             if inCode || t.hasPrefix("#") { return nil }
-            return t.hasPrefix("- ") || t.hasPrefix("* ") ? String(t.dropFirst(2)) : t
+            return t.replacing(/^([-*+]|\d+[.)])\s+/, with: "").replacing(/^>\s*/, with: "")
         }
-        return lines.joined(separator: " ")
+        return lines.joined(separator: " ").replacing(/[*_`]/, with: "")
     }
 
     var contextScope: ClaudeScope {

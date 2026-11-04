@@ -285,8 +285,9 @@ struct ClaudePanel: View {
     @State private var tracksScroll = false
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
-    private static let accent = Color(hex: "#C96442")
-    private static let readableWidth: CGFloat = 760
+    private static let accent = Color.brand
+    private static let readableWidth: CGFloat = 680
+    static let compactWidth: CGFloat = 400
 
     var body: some View {
         ZStack {
@@ -304,11 +305,10 @@ struct ClaudePanel: View {
             }
         }
         .animation(Motion.panel, value: reader.claudeShowsHistory)
-        .frame(maxWidth: reader.claudeExpanded ? .infinity : 400)
-        .glassSurface(in: .rect(cornerRadius: 26), tint: theme.backgroundColor.opacity(0.6))
+        .frame(maxWidth: reader.claudeExpanded ? .infinity : Self.compactWidth)
         .clipShape(.rect(cornerRadius: 26))
+        .readerPanelSurface(theme)
         .readerOverlay()
-        .glassShadow(opacity: 0.14, radius: 30, y: 10)
         .onChange(of: reader.claudeDraft) { _, seed in
             if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
         }
@@ -349,11 +349,8 @@ struct ClaudePanel: View {
     private var header: some View {
         HStack(spacing: 10) {
             ClaudeAvatar(size: 30)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Claude").font(.headline)
-                Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "") : "Reading companion")
-                    .font(.callout).foregroundStyle(.secondary).lineLimit(1)
-            }
+            Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "Claude") : "Claude")
+                .font(.headline).lineLimit(1)
             Spacer(minLength: 8)
             HStack(spacing: 4) {
                 PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
@@ -372,12 +369,14 @@ struct ClaudePanel: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: Self.readableWidth)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Conversation
 
     private var conversation: some View {
-        ScrollViewReader { proxy in
+        GeometryReader { viewport in ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let passage = chat.thread?.passage {
@@ -387,7 +386,7 @@ struct ClaudePanel: View {
                         emptyState
                     }
                     ForEach(chat.thread?.messages ?? []) { m in
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 12) {
                             let live = chat.activities.filter { $0.messageID == m.id }
                             if !live.isEmpty {
                                 ActivityList(items: live, undo: chat.undo)
@@ -420,11 +419,15 @@ struct ClaudePanel: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 52)
                 .frame(maxWidth: Self.readableWidth)
-                .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
             }
             .softScrollEdges(.all)
+            .verticalEdgeFade()
             .scrollPosition($scrollPosition)
             .onScrollGeometryChange(for: CGFloat?.self) { g in
                 g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 8 ? nil : g.contentOffset.y
@@ -439,7 +442,7 @@ struct ClaudePanel: View {
             .onChange(of: chat.thread?.messages.count) { _, _ in
                 withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
-        }
+        } }
     }
 
     private func restoreScroll() {
@@ -458,27 +461,50 @@ struct ClaudePanel: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold, design: .serif))
                 Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
-                    .font(.title3).foregroundStyle(.secondary)
+                    .font(.body).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-            capabilitiesRow
+            VStack(spacing: 6) {
+                suggestionRow("Summarize this chapter", symbol: "text.alignleft")
+                suggestionRow("Explain the main idea of this page", symbol: "lightbulb")
+                suggestionRow("What can you do for me?", symbol: "sparkles")
+            }
+            let recent = reader.state.liveChats.prefix(3)
+            if !recent.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recent conversations").font(.callout.weight(.medium)).foregroundStyle(.secondary).padding(.bottom, 2)
+                    ForEach(Array(recent)) { t in
+                        Button { chat.open(t) } label: {
+                            HStack {
+                                Text(t.title).font(.body).lineLimit(1)
+                                Spacer(minLength: 12)
+                                Text(t.updated, format: .relative(presentation: .named)).font(.callout).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().opacity(0.5)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
-        .padding(.top, 2)
+        .padding(.top, 24)
     }
 
-    private var capabilitiesRow: some View {
-        Button { chat.send("What can you do for me?") } label: {
+    private func suggestionRow(_ prompt: String, symbol: String) -> some View {
+        Button { chat.send(prompt) } label: {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles")
+                Image(systemName: symbol)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Self.accent)
                     .frame(width: 28, height: 28)
                     .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
-                Text("What can you do for me?").font(.body.weight(.medium))
+                Text(prompt).font(.body.weight(.medium))
                 Spacer()
-                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             .padding(8)
             .contentShape(Rectangle())
@@ -529,7 +555,7 @@ struct ClaudePanel: View {
                         }
                     }
                 } label: {
-                    Chip(symbol: "gauge.with.dots.needle.33percent", title: chat.effort.name)
+                    Chip(symbol: nil, title: "\(chat.effort.name) effort")
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -551,9 +577,10 @@ struct ClaudePanel: View {
                 } else {
                     let empty = chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     Button { chat.send() } label: {
-                        Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
                             .frame(width: 30, height: 30)
-                            .background(Circle().fill(empty ? AnyShapeStyle(.gray.opacity(0.4)) : AnyShapeStyle(Self.accent.gradient)))
+                            .background(Circle().fill(empty ? AnyShapeStyle(Self.accent.opacity(0.4)) : AnyShapeStyle(Self.accent.gradient)))
                     }
                     .buttonStyle(.plain)
                     .disabled(empty)
@@ -577,20 +604,12 @@ struct ClaudePanel: View {
         let threads = reader.state.liveChats
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Button { reader.claudeShowsHistory = false } label: {
-                    Label("Back", systemImage: "chevron.left").font(.body.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Self.accent)
-                Spacer()
+                PanelIconButton(symbol: "chevron.left", label: "Back") { reader.claudeShowsHistory = false }
                 Text("Conversations").font(.headline)
                 Spacer()
                 HStack(spacing: 4) {
-                    Button("Clear All") { confirmingClearAll = true }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(threads.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
+                    PanelIconButton(symbol: "trash", label: "Delete All Conversations") { confirmingClearAll = true }
                         .disabled(threads.isEmpty)
-                        .padding(.trailing, 6)
                     PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                         chat.newThread()
                         reader.claudeShowsHistory = false
@@ -604,19 +623,15 @@ struct ClaudePanel: View {
                 Text("\(threads.count == 1 ? "1 conversation" : "\(threads.count) conversations") will be removed from all your devices.")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: Self.readableWidth)
+            .frame(maxWidth: .infinity)
             Divider().opacity(0.35)
 
             if threads.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "bubble.left.and.text.bubble.right")
-                        .font(.system(size: 34, weight: .light)).foregroundStyle(.tertiary)
-                    Text("No conversations yet").font(.headline)
-                    Text("Questions you ask about this book will be kept here, on every Mac.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                }
-                .padding(30)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyStateView(symbol: "bubble.left.and.text.bubble.right", title: "No conversations yet",
+                               detail: "Questions you ask about this book will be kept here, on every Mac.")
+                    .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 4) {
@@ -673,12 +688,12 @@ private struct PanelIconButton: View {
 }
 
 private struct Chip: View {
-    let symbol: String
+    let symbol: String?
     let title: String
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+            if let symbol { Image(systemName: symbol).font(.system(size: 12, weight: .semibold)) }
             Text(title).font(.body.weight(.medium))
             Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
         }
@@ -715,37 +730,35 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: thread.passage != nil ? "text.quote" : "bubble.left.and.text.bubble.right")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: "#C96442"))
-                .frame(width: 28, height: 28)
-                .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 3) {
                 Text(thread.title).font(.body.weight(.medium)).lineLimit(2)
                 if let last = thread.messages.last(where: { $0.role == .assistant }) {
-                    Text(Markdown.attributed(ChatThread.preview(of: last.text)))
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    Text(ChatThread.preview(of: last.text))
+                        .font(.callout).foregroundStyle(.primary.opacity(0.65)).lineLimit(2)
                 }
                 HStack(spacing: 4) {
                     Text(thread.updated, format: .relative(presentation: .named))
-                    if isCurrent { Text("· Open").foregroundStyle(Color(hex: "#C96442")) }
+                    if isCurrent { Text("· Open").foregroundStyle(Color.brand) }
                 }
-                .font(.subheadline).foregroundStyle(.tertiary)
+                .font(.callout).foregroundStyle(.primary.opacity(0.65))
             }
             Spacer(minLength: 4)
             Button { confirming = true } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(hovering ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                    .foregroundStyle(hovering ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                     .frame(width: 26, height: 26)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .opacity(hovering ? 1 : 0)
             .tooltip("Delete Conversation")
             .accessibilityLabel("Delete conversation")
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 14).fill(.primary.opacity(hovering ? 0.07 : isCurrent ? 0.05 : 0)))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.primary.opacity(hovering ? 0.07 : isCurrent ? 0.05 : 0)))
+        .overlay(alignment: .bottom) { Divider().opacity(0.6) }
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
         .onHover { hovering = $0 }
@@ -769,16 +782,16 @@ private struct PassageCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 2).fill(Color(hex: "#C96442").gradient).frame(width: 3)
+            RoundedRectangle(cornerRadius: 2).fill(Color.brand.gradient).frame(width: 3)
             Text(text)
-                .font(.system(.callout, design: .serif).italic())
-                .lineLimit(expanded ? nil : 4)
-                .foregroundStyle(.secondary)
+                .font(.custom("Charter", size: 14))
+                .lineLimit(expanded ? nil : 3)
+                .foregroundStyle(.primary.opacity(0.8))
                 .textSelection(.enabled)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
+        .background(.primary.opacity(0.05), in: .rect(cornerRadius: 14))
         .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
     }
 }
@@ -813,7 +826,7 @@ private struct MessageView: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .glassSurface(in: .rect(cornerRadius: 18), tint: Color(hex: "#C96442").opacity(0.35))
+                    .background(Color.brand.opacity(0.14), in: .rect(cornerRadius: 18))
             }
         } else {
             MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
@@ -850,7 +863,7 @@ struct MarkdownText: View {
                     HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 1.5).fill(.secondary.opacity(0.5)).frame(width: 3)
                         Text(Markdown.attributed(lines.joined(separator: " ")))
-                            .font(serif(15.5).italic()).foregroundStyle(.secondary)
+                            .font(serif(15.5).italic()).foregroundStyle(.primary.opacity(0.78))
                     }
                 case .list(let ordered, let items):
                     VStack(alignment: .leading, spacing: 5) {
@@ -905,18 +918,17 @@ private struct ActivityList: View {
     let undo: ((UUID) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(items) { item in
                 HStack(spacing: 8) {
                     Image(systemName: item.undone ? "arrow.uturn.backward" : item.activity.symbol)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: "#C96442"))
-                        .frame(width: 22, height: 22)
-                        .background(Color(hex: "#C96442").opacity(0.14), in: .rect(cornerRadius: 6))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
                     Text(item.activity.title)
                         .font(.callout)
                         .strikethrough(item.undone)
-                        .foregroundStyle(item.undone ? .secondary : .primary)
+                        .foregroundStyle(.primary.opacity(0.65))
                         .lineLimit(2)
                     Spacer(minLength: 4)
                     if item.undone {
@@ -925,12 +937,10 @@ private struct ActivityList: View {
                         Button(item.activity.undoLabel) { undo(item.id) }
                             .buttonStyle(.borderless)
                             .font(.callout.weight(.medium))
-                            .foregroundStyle(Color(hex: "#C96442"))
+                            .foregroundStyle(Color.brand)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 10).fill(.primary.opacity(0.05)))
+                .padding(.vertical, 1)
             }
         }
     }
