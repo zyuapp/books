@@ -461,50 +461,27 @@ struct ClaudePanel: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
-                    .font(.system(size: 22, weight: .semibold, design: .serif))
+                    .font(.system(size: 26, weight: .semibold))
                 Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
-                    .font(.body).foregroundStyle(.secondary)
+                    .font(.title3).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-            VStack(spacing: 6) {
-                suggestionRow("Summarize this chapter", symbol: "text.alignleft")
-                suggestionRow("Explain the main idea of this page", symbol: "lightbulb")
-                suggestionRow("What can you do for me?", symbol: "sparkles")
-            }
-            let recent = reader.state.liveChats.prefix(3)
-            if !recent.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Recent conversations").font(.callout.weight(.medium)).foregroundStyle(.secondary).padding(.bottom, 2)
-                    ForEach(Array(recent)) { t in
-                        Button { chat.open(t) } label: {
-                            HStack {
-                                Text(t.title).font(.body).lineLimit(1)
-                                Spacer(minLength: 12)
-                                Text(t.updated, format: .relative(presentation: .named)).font(.callout).foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 5)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        Divider().opacity(0.5)
-                    }
-                }
-                .padding(.top, 6)
-            }
+            capabilitiesRow
         }
-        .padding(.top, 24)
+        .padding(.top, 2)
     }
 
-    private func suggestionRow(_ prompt: String, symbol: String) -> some View {
-        Button { chat.send(prompt) } label: {
+    private var capabilitiesRow: some View {
+        Button { chat.send("What can you do for me?") } label: {
             HStack(spacing: 10) {
-                Image(systemName: symbol)
+                Image(systemName: "sparkles")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Self.accent)
                     .frame(width: 28, height: 28)
                     .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
-                Text(prompt).font(.body.weight(.medium))
+                Text("What can you do for me?").font(.body.weight(.medium))
                 Spacer()
+                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
             .padding(8)
             .contentShape(Rectangle())
