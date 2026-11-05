@@ -17,6 +17,16 @@ extension View {
         }
     }
 
+    /// Liquid Glass draws its own shadow; earlier systems get a drawn one.
+    @ViewBuilder
+    func glassShadow(opacity: Double = 0.12, radius: CGFloat, y: CGFloat) -> some View {
+        if #available(macOS 26.0, *) {
+            self
+        } else {
+            shadow(color: .black.opacity(opacity), radius: radius, y: y)
+        }
+    }
+
     @ViewBuilder
     func glassButtonStyle() -> some View {
         if #available(macOS 26.0, *) {

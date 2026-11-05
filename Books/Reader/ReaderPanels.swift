@@ -47,7 +47,9 @@ struct SidePanel: View {
         }
         .transaction { $0.animation = nil }
         .frame(width: Self.width)
-        .readerPanelSurface(ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark))
+        .glassSurface(in: .rect(cornerRadius: 26),
+                      tint: ReaderSettings.shared.prefs.theme.resolved(dark: colorScheme == .dark).backgroundColor.opacity(0.6))
+        .glassShadow(radius: 30, y: 10)
         .readerOverlay()
         .onChange(of: model.panel) { _, panel in
             if let panel { lastPanel = panel }
