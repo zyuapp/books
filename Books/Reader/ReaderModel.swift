@@ -729,4 +729,12 @@ extension NSView {
         let top = CGPoint(x: p.x, y: content.bounds.height - p.y)
         return rects.contains { $0.insetBy(dx: -2, dy: -2).contains(top) }
     }
+
+    /// Hands a wheel event meant for something other than this page straight to the view under the cursor.
+    /// AppKit keeps sending a scroll gesture to the view that began it, so a panel scrolled right after the page would turn pages.
+    func routeWheelAwayFromPage(_ event: NSEvent) -> NSEvent? {
+        guard let target = window?.contentView?.hitTest(event.locationInWindow) else { return event }
+        if !target.isDescendant(of: self) { target.scrollWheel(with: event) }
+        return nil
+    }
 }

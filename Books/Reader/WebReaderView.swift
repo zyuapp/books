@@ -489,11 +489,13 @@ final class ReaderWebView: WKWebView {
         guard window != nil else { return }
         // WebKit consumes wheel events internally, so intercept them before dispatch.
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
-            guard let self, event.window === self.window, self.isPaginated else { return event }
+            guard let self, event.window === self.window else { return event }
             let p = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(p), !self.isUnderOverlay(self.superview?.convert(event.locationInWindow, from: nil) ?? p,
-                                                                rects: self.model?.overlayRects ?? []) else { return event }
-            return nil
+                                                                rects: self.model?.overlayRects ?? []) else {
+                return self.routeWheelAwayFromPage(event)
+            }
+            return self.isPaginated ? nil : event
         }
     }
 

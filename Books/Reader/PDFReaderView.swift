@@ -711,7 +711,9 @@ final class ReaderPDFView: PDFView {
                 return event
             }
             let p = superview.convert(event.locationInWindow, from: nil)
-            guard self.frame.contains(p), !self.isUnderOverlay(p, rects: self.model?.overlayRects ?? []) else { return event }
+            guard self.frame.contains(p), !self.isUnderOverlay(p, rects: self.model?.overlayRects ?? []) else {
+                return event.type == .scrollWheel ? self.routeWheelAwayFromPage(event) : event
+            }
             if event.type == .leftMouseDown {
                 // PDFKit's page views take clicks before this view. A click while the page is still moving only stops it.
                 guard event.timestamp - self.lastScrollTime < 0.3 else {
