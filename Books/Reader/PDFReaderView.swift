@@ -584,9 +584,15 @@ final class PDFEngine: NSObject, ReaderEngine {
             if model.selection?.highlightID == nil { model.selection = nil }
             return
         }
-        let lines = sel.selectionsByLine().filter { $0.pages.first == page }
-        let rects = lines.map { $0.bounds(for: page) }.map { PDFRect(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) }
-        let viewRect = flipped(pdfView.convert(sel.bounds(for: page), from: page))
+        // PDFKit can report null or NaN bounds for some selections; those can't be drawn or laid out.
+        let lineBounds = sel.selectionsByLine().filter { $0.pages.first == page }.map { $0.bounds(for: page) }.filter(\.isFinite)
+        let pageBounds = sel.bounds(for: page)
+        guard let bounds = pageBounds.isFinite ? pageBounds : lineBounds.dropFirst().reduce(lineBounds.first, { $0?.union($1) }),
+              case let viewRect = flipped(pdfView.convert(bounds, from: page)), viewRect.isFinite else {
+            if model.selection?.highlightID == nil { model.selection = nil }
+            return
+        }
+        let rects = lineBounds.map { PDFRect(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) }
         model.selection = ReaderSelection(text: text, rect: viewRect, pdfRects: rects, pageIndex: document.index(for: page))
     }
 

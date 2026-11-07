@@ -183,14 +183,14 @@ struct ReaderView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topTrailing)))
                 }
-                if let sel = model.selection {
+                if let sel = model.selection, sel.rect.isFinite {
                     let x = selectionBarX(sel.rect, in: geo.size)
                     SelectionBar(model: model, selection: sel, pointerOffset: sel.rect.midX - x, pointsDown: barAbove(sel.rect))
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { selectionBarWidth = $0 }
                         .position(x: x, y: selectionBarY(sel.rect, in: geo.size))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
-                if let sel = model.selection, let note = highlightNote(sel) {
+                if let sel = model.selection, sel.rect.isFinite, let note = highlightNote(sel) {
                     NoteCard(label: "Your Note", symbol: "note.text", text: note, actionTitle: "Edit", action: { model.addNoteToSelection() }) {
                         model.selection = nil
                     }
@@ -199,7 +199,7 @@ struct ReaderView: View {
                     .offset(noteCardOffset(sel.rect, in: geo.size))
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
-                if let note = model.footnote {
+                if let note = model.footnote, note.rect.isFinite {
                     NoteCard(label: "Note", symbol: "text.append", text: note.text,
                              actionTitle: "Go to Note", action: note.link.map { url in { model.openLink(url) } }) { model.footnote = nil }
                         .fixedSize(horizontal: false, vertical: true)

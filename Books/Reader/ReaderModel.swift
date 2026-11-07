@@ -13,6 +13,11 @@ struct ReaderSelection: Equatable {
     var highlightID: UUID?
 }
 
+extension CGRect {
+    /// False for null, infinite or NaN rects, which can't anchor a popup.
+    var isFinite: Bool { [minX, minY, width, height].allSatisfy(\.isFinite) }
+}
+
 struct FootnotePopup: Equatable {
     var text: String
     var rect: CGRect
