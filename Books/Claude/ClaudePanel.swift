@@ -6,6 +6,9 @@ import SwiftUI
 final class ClaudeChat {
     var thread: ChatThread?
     var input = ""
+    /// Passage the next question is about, shown above the composer until sent.
+    var pendingPassage: String?
+    /// The part of the streaming answer on screen so far.
     var streamingText = ""
     var isStreaming = false
     var error: String?
@@ -24,9 +27,13 @@ final class ClaudeChat {
 
     /// Scroll offset per conversation while the book is open; absent means pinned to the bottom.
     @ObservationIgnored var scrollOffsets: [UUID: CGFloat] = [:]
-    /// Where the panel returns if the passage that replaced this conversation is never asked about.
-    @ObservationIgnored private var threadBeforePassage: ChatThread?
+    /// Set by New Conversation, so a passage asked about next starts there instead of joining a recent conversation.
+    @ObservationIgnored private var wantsNewThread = false
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var revealTask: Task<Void, Never>?
+    @ObservationIgnored private var received: [Character] = []
+    @ObservationIgnored private var shown = 0
+    @ObservationIgnored private var receivedAll = false
     @ObservationIgnored private weak var reader: ReaderModel?
 
     init(reader: ReaderModel) {
@@ -35,25 +42,32 @@ final class ClaudeChat {
         effort = ClaudeEffort(rawValue: UserDefaults.standard.string(forKey: "claudeEffort") ?? "") ?? .low
     }
 
-    private var hasUnusedPassage: Bool {
-        guard let thread else { return false }
-        return thread.passage != nil && thread.messages.isEmpty
+    /// The conversation to continue: the open one, else the latest, as long as it was active within the last hour.
+    private var recentThread: ChatThread? {
+        let cutoff = Date().addingTimeInterval(-3600)
+        if let thread, !thread.messages.isEmpty { return isStreaming || thread.updated > cutoff ? thread : nil }
+        if wantsNewThread { return nil }
+        return reader?.state.liveChats.first { !$0.messages.isEmpty && $0.updated > cutoff }
     }
 
     func begin(with seed: ClaudeRequestSeed) {
-        cancel()
-        if !hasUnusedPassage { threadBeforePassage = thread }
-        thread = ChatThread(title: seed.passage.map(ChatThread.title(from:)) ?? (reader?.chapterTitle ?? "Question"),
-                            passage: seed.passage, locator: seed.locator)
+        if let recent = recentThread {
+            if recent.id != thread?.id { open(recent) }
+        } else if thread?.messages.isEmpty == false {
+            newThread()
+        }
         error = nil
-        if let action = seed.action { send(action.prompt(hasPassage: seed.passage != nil)) }
+        pendingPassage = seed.passage
+        if let action = seed.action {
+            if isStreaming { cancel() }
+            send(action.prompt(hasPassage: seed.passage != nil))
+        }
     }
 
-    /// Forgets a passage the reader opened the panel with but never asked about, returning to the previous conversation.
+    /// Forgets a passage the reader opened the panel with but never asked about.
     func dropUnusedPassage() {
-        guard hasUnusedPassage, input.isEmpty else { return }
-        thread = threadBeforePassage
-        threadBeforePassage = nil
+        guard input.isEmpty else { return }
+        pendingPassage = nil
     }
 
     func newThread() {
@@ -61,20 +75,54 @@ final class ClaudeChat {
         thread = nil
         error = nil
         input = ""
+        pendingPassage = nil
+        wantsNewThread = true
     }
 
     func open(_ t: ChatThread) {
         cancel()
         thread = t
         error = nil
+        wantsNewThread = false
     }
 
     func cancel() {
         task?.cancel()
         task = nil
+        revealTask?.cancel()
+        revealTask = nil
         if isStreaming, !streamingText.isEmpty { appendAssistant(streamingText + " …") }
         isStreaming = false
         streamingText = ""
+    }
+
+    /// Shows received text a few words per frame, faster the further it lags, so bursts from the stream read smoothly.
+    private func startReveal() {
+        received = []
+        shown = 0
+        receivedAll = false
+        streamingText = ""
+        revealTask = Task { [weak self] in
+            while !Task.isCancelled, self?.revealNext() == true {
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    /// Returns false once the answer is complete and fully shown.
+    private func revealNext() -> Bool {
+        let backlog = received.count - shown
+        guard backlog > 0 else { return !receivedAll }
+        var end = min(received.count, shown + max(2, backlog / 15))
+        while end < received.count, !received[end - 1].isWhitespace { end += 1 }
+        if !receivedAll, !received[end - 1].isWhitespace {
+            // The last word may still be arriving.
+            guard let space = received[shown..<end].lastIndex(where: \.isWhitespace) else { return true }
+            end = space + 1
+        }
+        streamingText.append(contentsOf: received[shown..<end])
+        shown = end
+        return true
     }
 
     func send(_ text: String? = nil) {
@@ -82,17 +130,21 @@ final class ClaudeChat {
         guard !question.isEmpty, !isStreaming, let reader else { return }
         input = ""
         error = nil
+        let selected = pendingPassage
+        pendingPassage = nil
         if thread == nil {
-            thread = ChatThread(title: ChatThread.title(from: question), passage: nil, locator: reader.location)
+            thread = ChatThread(title: ChatThread.title(from: selected ?? question), passage: nil, locator: reader.location)
+            wantsNewThread = false
         }
         let history = thread!.messages
-        thread!.messages.append(ChatMessage(role: .user, text: question))
+        let legacyPassage = thread!.passage
+        thread!.messages.append(ChatMessage(role: .user, text: question, passage: selected))
         thread!.updated = Date()
         persist()
 
         isStreaming = true
-        streamingText = ""
-        let passage = thread!.passage
+        startReveal()
+        let passage = selected ?? legacyPassage
         let undone = undoneSinceLastSend
         undoneSinceLastSend = []
         let model = model
@@ -122,7 +174,7 @@ final class ClaudeChat {
                     switch event {
                     case .text(let t):
                         if let label = toolProgress, Self.webToolLabels.values.contains(label) { toolProgress = nil }
-                        streamingText += t
+                        received.append(contentsOf: t)
                     case .tool(let name):
                         if let label = Self.webToolLabels[name] {
                             withAnimation(.easeOut(duration: 0.2)) { toolProgress = label }
@@ -132,12 +184,17 @@ final class ClaudeChat {
                     }
                 }
                 guard !Task.isCancelled else { return }
-                appendAssistant(streamingText)
+                receivedAll = true
+                await revealTask?.value
+                guard !Task.isCancelled else { return }
+                appendAssistant(String(received))
             } catch {
                 guard !Task.isCancelled else { return }
-                if !streamingText.isEmpty { appendAssistant(streamingText) }
+                if !received.isEmpty { appendAssistant(String(received)) }
                 self.error = error.localizedDescription
             }
+            revealTask?.cancel()
+            revealTask = nil
             isStreaming = false
             streamingText = ""
         }
@@ -177,7 +234,6 @@ final class ClaudeChat {
             }
         }
         if thread?.id == t.id { thread = nil }
-        if threadBeforePassage?.id == t.id { threadBeforePassage = nil }
     }
 
     /// Deletes every conversation about the open book.
@@ -191,7 +247,6 @@ final class ClaudeChat {
             }
         }
         thread = nil
-        threadBeforePassage = nil
         error = nil
     }
 
@@ -228,7 +283,10 @@ final class ClaudeChat {
         }
         if let passage { parts.append("<selected_passage>\n\(passage)\n</selected_passage>") }
         if !history.isEmpty {
-            let convo = history.map { "\($0.role == .user ? "Reader" : "You"): \($0.text)" }.joined(separator: "\n\n")
+            let convo = history.map { m in
+                let quote = m.passage.map { "(about the passage “\($0)”) " } ?? ""
+                return "\(m.role == .user ? "Reader" : "You"): \(quote)\(m.text)"
+            }.joined(separator: "\n\n")
             parts.append("<conversation_so_far>\n\(convo)\n</conversation_so_far>")
         }
         parts.append(question)
@@ -283,6 +341,8 @@ struct ClaudePanel: View {
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     /// Off until the saved offset is applied, so the first layout's offset isn't saved over it.
     @State private var tracksScroll = false
+    /// Whether new text keeps the conversation scrolled to the bottom; off while the reader scrolls back.
+    @State private var followsLatest = true
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     private static let accent = Color.brand
@@ -393,6 +453,7 @@ struct ClaudePanel: View {
                             } else if let actions = m.actions, !actions.isEmpty {
                                 ActivityList(items: actions.map { ChatActivity(activity: AgentActivity(symbol: "checkmark.circle", title: $0)) }, undo: nil)
                             }
+                            if let passage = m.passage { PassageCard(text: passage) }
                             MessageView(message: m)
                         }
                         .id(m.id)
@@ -401,14 +462,14 @@ struct ClaudePanel: View {
                         VStack(alignment: .leading, spacing: 8) {
                             let pending = chat.activities.filter { $0.messageID == nil }
                             if !pending.isEmpty { ActivityList(items: pending, undo: chat.undo) }
-                            if let progress = chat.toolProgress {
+                            if let progress = chat.toolProgress ?? (chat.streamingText.isEmpty ? "Thinking" : nil) {
                                 HStack(spacing: 8) {
                                     ProgressView().controlSize(.small)
                                     Text(progress + "…").font(.callout.weight(.medium)).foregroundStyle(.secondary)
                                 }
                                 .transition(.opacity)
                             }
-                            if !chat.streamingText.isEmpty || chat.toolProgress == nil {
+                            if !chat.streamingText.isEmpty {
                                 MessageView(message: ChatMessage(role: .assistant, text: chat.streamingText), streaming: true)
                             }
                         }
@@ -435,11 +496,27 @@ struct ClaudePanel: View {
                 guard tracksScroll, let id = chat.thread?.id else { return }
                 chat.scrollOffsets[id] = offset
             }
+            .onScrollPhaseChange { _, phase, context in
+                if phase == .interacting {
+                    followsLatest = false
+                } else if phase == .idle {
+                    let g = context.geometry
+                    followsLatest = g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 40
+                }
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { old, new in
+                guard chat.isStreaming, followsLatest, new > old else { return }
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
             .onAppear(perform: restoreScroll)
             .onChange(of: chat.thread?.id) { _, _ in restoreScroll() }
-            .onChange(of: chat.streamingText) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: chat.activities.count) { _, _ in withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: chat.activities.count) { _, _ in
+                guard followsLatest else { return }
+                withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
             .onChange(of: chat.thread?.messages.count) { _, _ in
+                if chat.thread?.messages.last?.role == .user { followsLatest = true }
+                guard followsLatest else { return }
                 withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         } }
@@ -447,6 +524,7 @@ struct ClaudePanel: View {
 
     private func restoreScroll() {
         tracksScroll = false
+        followsLatest = chat.thread.map { chat.scrollOffsets[$0.id] == nil } ?? true
         DispatchQueue.main.async {
             if let id = chat.thread?.id, let y = chat.scrollOffsets[id] {
                 scrollPosition.scrollTo(y: y)
@@ -460,7 +538,7 @@ struct ClaudePanel: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
+                Text(chat.pendingPassage != nil || chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
                     .font(.system(size: 26, weight: .semibold))
                 Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
                     .font(.title3).foregroundStyle(.secondary)
@@ -501,7 +579,12 @@ struct ClaudePanel: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField(chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
+            if let passage = chat.pendingPassage {
+                PendingPassage(text: passage) { withAnimation(.snappy) { chat.pendingPassage = nil } }
+                    .transition(.opacity)
+            }
+            TextField(chat.pendingPassage != nil ? "Ask about this passage…"
+                      : chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
                       text: $chat.input, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5 * textSize / ChatTextSize.standard))
@@ -773,6 +856,33 @@ private struct PassageCard: View {
     }
 }
 
+/// The passage attached to the next question, with a button to remove it.
+private struct PendingPassage: View {
+    let text: String
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.5).fill(Color.brand.gradient).frame(width: 3)
+            Text(text.collapsingWhitespace)
+                .font(.custom("Charter", size: 13))
+                .lineLimit(2)
+                .foregroundStyle(.primary.opacity(0.75))
+            Spacer(minLength: 4)
+            Button(action: remove) {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(.primary.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .tooltip("Remove Passage")
+            .accessibilityLabel("Remove passage")
+        }
+        .padding(8)
+        .background(.primary.opacity(0.05), in: .rect(cornerRadius: 10))
+    }
+}
+
 private struct ErrorCard: View {
     let message: String
 
@@ -806,7 +916,7 @@ private struct MessageView: View {
                     .background(Color.brand.opacity(0.14), in: .rect(cornerRadius: 18))
             }
         } else {
-            MarkdownText(text: message.text + (streaming ? " ▍" : ""), rendersDiagrams: !streaming)
+            MarkdownText(text: message.text, rendersDiagrams: !streaming)
         }
     }
 }

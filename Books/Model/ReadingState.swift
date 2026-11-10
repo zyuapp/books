@@ -60,6 +60,8 @@ struct ChatMessage: Codable, Hashable, Identifiable, Sendable {
     var role: Role
     var text: String
     var date = Date()
+    /// The passage the reader selected when asking this question.
+    var passage: String? = nil
     /// What Claude did in the app while writing this answer.
     var actions: [String]? = nil
 }
@@ -67,6 +69,7 @@ struct ChatMessage: Codable, Hashable, Identifiable, Sendable {
 struct ChatThread: Syncable, Hashable, Sendable {
     var id = UUID()
     var title: String
+    /// Passage the whole conversation is about; newer conversations keep passages on their messages instead.
     var passage: String?
     var locator: Locator?
     /// Never `.page`, so older versions syncing this thread can still decode it; see `pageOnly`.
