@@ -921,7 +921,7 @@ private struct MessageView: View {
     }
 }
 
-/// Renders Claude's Markdown: paragraphs, headings, lists, quotes and code.
+/// Renders Claude's Markdown: paragraphs, headings, lists, tables, quotes and code.
 struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
@@ -958,6 +958,24 @@ struct MarkdownText: View {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(ordered ? "\(i + 1)." : "•").font(serif(15.5)).foregroundStyle(.secondary).monospacedDigit()
                                 Text(Markdown.attributed(item)).font(serif(15.5)).lineSpacing(3 * scale)
+                            }
+                        }
+                    }
+                case .table(let header, let rows):
+                    Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 7) {
+                        GridRow {
+                            ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
+                                Text(Markdown.attributed(cell)).font(serif(14.5).bold())
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            Divider().gridCellUnsizedAxes(.horizontal)
+                            GridRow {
+                                ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                                    Text(Markdown.attributed(cell)).font(serif(14.5)).lineSpacing(2.5 * scale)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }

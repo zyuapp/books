@@ -118,7 +118,11 @@ enum TextParser {
             }
             let file = dir.appendingPathComponent("md\(i).html")
             let html = HTMLTemplate.document(title: chapter.title, body: body,
-                                             css: "pre { white-space: pre-wrap; } img { max-width: 100%; } h1, h2, h3 { text-align: left !important; }")
+                                             css: """
+                                             pre { white-space: pre-wrap; } img { max-width: 100%; } h1, h2, h3 { text-align: left !important; }
+                                             table { border-collapse: collapse; margin: 1em 0; }
+                                             th, td { text-align: left; vertical-align: top; padding: 0.35em 0.7em; border-bottom: 1px solid color-mix(in srgb, currentColor 22%, transparent); }
+                                             """)
             try html.write(to: file, atomically: true, encoding: .utf8)
             spine.append(SpineItem(url: file, weight: html.utf8.count))
             toc.append(TOCEntry(title: chapter.title, spineIndex: i, children: subs))
@@ -209,6 +213,7 @@ enum Markdown {
         case code(String, language: String?)
         case quote([String])
         case list(ordered: Bool, items: [String])
+        case table(header: [String], rows: [[String]])
         case rule
     }
 
@@ -265,6 +270,18 @@ enum Markdown {
                 }
                 result.append(.list(ordered: ordered, items: items))
                 continue
+            } else if trimmed.contains("|"), i + 1 < lines.count, isTableDelimiter(lines[i + 1]),
+                      case let header = tableCells(trimmed), header.count == tableCells(lines[i + 1]).count {
+                flushPara()
+                var rows: [[String]] = []
+                i += 2
+                while i < lines.count, lines[i].contains("|") {
+                    let cells = tableCells(lines[i])
+                    rows.append(header.indices.map { $0 < cells.count ? cells[$0] : "" })
+                    i += 1
+                }
+                result.append(.table(header: header, rows: rows))
+                continue
             } else if i + 1 < lines.count, para.isEmpty,
                       lines[i + 1].wholeMatch(of: /\s*(=+|-+)\s*/) != nil {
                 result.append(.heading(lines[i + 1].contains("=") ? 1 : 2, trimmed))
@@ -278,6 +295,33 @@ enum Markdown {
         return result
     }
 
+    /// Splits a table row on unescaped pipes, ignoring the optional outer ones.
+    private static func tableCells(_ line: String) -> [String] {
+        var cells: [String] = [], cell = "", escaped = false
+        for ch in line.trimmingCharacters(in: .whitespaces) {
+            if escaped {
+                cell += ch == "|" ? "|" : "\\\(ch)"
+                escaped = false
+            } else if ch == "\\" {
+                escaped = true
+            } else if ch == "|" {
+                cells.append(cell)
+                cell = ""
+            } else {
+                cell.append(ch)
+            }
+        }
+        cells.append(escaped ? cell + "\\" : cell)
+        if cells.first?.allSatisfy(\.isWhitespace) == true { cells.removeFirst() }
+        if cells.last?.allSatisfy(\.isWhitespace) == true { cells.removeLast() }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private static func isTableDelimiter(_ line: String) -> Bool {
+        let cells = tableCells(line)
+        return line.contains("|") && !cells.isEmpty && cells.allSatisfy { $0.wholeMatch(of: /:?-+:?/) != nil }
+    }
+
     static func html(_ block: Block, id: String, image: (String) -> String = { $0 }) -> String {
         switch block {
         case .heading(let l, let t): return "<h\(l) id=\"\(id)\">\(inline(t, image: image))</h\(l)>\n"
@@ -289,6 +333,10 @@ enum Markdown {
         case .list(let ordered, let items):
             let tag = ordered ? "ol" : "ul"
             return "<\(tag)>" + items.map { "<li>\(inline($0, image: image))</li>" }.joined() + "</\(tag)>\n"
+        case .table(let header, let rows):
+            let head = header.map { "<th>\(inline($0, image: image))</th>" }.joined()
+            let body = rows.map { "<tr>" + $0.map { "<td>\(inline($0, image: image))</td>" }.joined() + "</tr>" }.joined()
+            return "<table><thead><tr>\(head)</tr></thead><tbody>\(body)</tbody></table>\n"
         case .rule: return "<hr/>\n"
         }
     }
