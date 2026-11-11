@@ -346,7 +346,7 @@ struct ClaudePanel: View {
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
     private static let accent = Color.brand
-    private static let readableWidth: CGFloat = 680
+    private static let readableWidth: CGFloat = 760
     static let compactWidth: CGFloat = 400
 
     var body: some View {
@@ -357,7 +357,7 @@ struct ClaudePanel: View {
             } else {
                 VStack(spacing: 0) {
                     header
-                    Divider().opacity(0.35)
+                    if !reader.claudeExpanded { Divider().opacity(0.35) }
                     conversation
                     composer
                 }
@@ -366,8 +366,7 @@ struct ClaudePanel: View {
         }
         .animation(Motion.panel, value: reader.claudeShowsHistory)
         .frame(maxWidth: reader.claudeExpanded ? .infinity : Self.compactWidth)
-        .clipShape(.rect(cornerRadius: 26))
-        .readerPanelSurface(theme)
+        .modifier(PanelSurface(expanded: reader.claudeExpanded, theme: theme))
         .readerOverlay()
         .onChange(of: reader.claudeDraft) { _, seed in
             if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
@@ -408,11 +407,13 @@ struct ClaudePanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            ClaudeAvatar(size: 30)
-            Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "Claude") : "Claude")
-                .font(.headline).lineLimit(1)
+            if !reader.claudeExpanded { ClaudeAvatar(size: 30) }
+            Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "Claude") : reader.claudeExpanded ? "" : "Claude")
+                .font(reader.claudeExpanded ? .subheadline.weight(.medium) : .headline)
+                .foregroundStyle(reader.claudeExpanded ? .secondary : .primary)
+                .lineLimit(1)
             Spacer(minLength: 8)
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
                 PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                     chat.newThread()
@@ -428,8 +429,8 @@ struct ClaudePanel: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: Self.readableWidth)
+        .padding(.vertical, reader.claudeExpanded ? 6 : 12)
+        .frame(maxWidth: reader.claudeExpanded ? .infinity : Self.readableWidth)
         .frame(maxWidth: .infinity)
     }
 
@@ -480,8 +481,8 @@ struct ClaudePanel: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.horizontal, reader.claudeExpanded ? 24 : 16)
+                .padding(.top, reader.claudeExpanded ? 28 : 16)
                 .padding(.bottom, 52)
                 .frame(maxWidth: Self.readableWidth)
                 .fixedSize(horizontal: false, vertical: true)
@@ -536,12 +537,12 @@ struct ClaudePanel: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(chat.pendingPassage != nil || chat.thread?.passage != nil ? "Chat with Claude about this passage" : "Chat with Claude about anything in this book")
-                    .font(.system(size: 26, weight: .semibold))
-                Text("It uses your Claude subscription. Claude can also find your place, highlight passages, bookmark pages, organize your library and change your reading settings.")
-                    .font(.title3).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(chat.pendingPassage != nil || chat.thread?.passage != nil ? "Ask about this passage" : "Ask about this book")
+                    .font(.system(size: 22, weight: .semibold))
+                Text("Claude can also find your place, highlight, bookmark and change reading settings. Uses your Claude subscription.")
+                    .font(.body).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
             capabilitiesRow
@@ -587,8 +588,10 @@ struct ClaudePanel: View {
                       : chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
                       text: $chat.input, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13.5 * textSize / ChatTextSize.standard))
-                .lineLimit(1...7)
+                .font(.system(size: (reader.claudeExpanded ? 15.5 : 13.5) * textSize / ChatTextSize.standard))
+                .lineLimit(reader.claudeExpanded ? 3...12 : 1...7)
+                .padding(.horizontal, reader.claudeExpanded ? 4 : 0)
+                .padding(.top, reader.claudeExpanded ? 4 : 0)
                 .focused($inputFocused)
                 .onSubmit { chat.send() }
                 .accessibilityLabel("Question for Claude")
@@ -650,11 +653,13 @@ struct ClaudePanel: View {
                 }
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 18).fill(.background.opacity(0.55)))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.55) : .primary.opacity(0.1), lineWidth: 1))
+        .padding(reader.claudeExpanded ? 16 : 12)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.4) : .primary.opacity(0.08), lineWidth: 1))
         .animation(.easeOut(duration: 0.15), value: inputFocused)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.bottom, reader.claudeExpanded ? 20 : 12)
+        .padding(.top, 4)
         .frame(maxWidth: Self.readableWidth)
     }
 
@@ -709,6 +714,24 @@ struct ClaudePanel: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// Compact: a floating card. Expanded: fills the window below the header, flush with its edges.
+private struct PanelSurface: ViewModifier {
+    let expanded: Bool
+    let theme: ReaderTheme
+
+    func body(content: Content) -> some View {
+        if expanded {
+            content
+                .background(theme.backgroundColor)
+                .overlay(alignment: .top) { Rectangle().fill(.primary.opacity(0.08)).frame(height: 0.5) }
+        } else {
+            content
+                .clipShape(.rect(cornerRadius: 26))
+                .readerPanelSurface(theme)
+        }
     }
 }
 

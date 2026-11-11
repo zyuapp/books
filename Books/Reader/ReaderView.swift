@@ -166,10 +166,9 @@ struct ReaderView: View {
                     if !(model.showClaude && model.claudeExpanded) { Spacer(minLength: 0) }
                     if model.showClaude {
                         ClaudePanel(reader: model, chat: chat, theme: theme)
-                            .padding(.leading, model.claudeExpanded ? 12 : 0)
-                            .padding(.trailing, 12)
-                            .padding(.top, 56)
-                            .padding(.bottom, 12)
+                            .padding(.trailing, model.claudeExpanded ? 0 : 12)
+                            .padding(.top, model.claudeExpanded ? HeaderBar<EmptyView, EmptyView>.height : 56)
+                            .padding(.bottom, model.claudeExpanded ? 0 : 12)
                             .transition(.move(edge: .trailing))
                     }
                 }
