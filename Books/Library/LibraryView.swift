@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum LibrarySection: Hashable {
-    case home, all, reading, finished
+    case home, all
     case books, pdfs, comics, documents
     case collection(String)
 
@@ -11,8 +11,6 @@ enum LibrarySection: Hashable {
         switch self {
         case .home: "Home"
         case .all: "All Books"
-        case .reading: "Reading"
-        case .finished: "Finished"
         case .books: "Books"
         case .pdfs: "PDFs"
         case .comics: "Comics"
@@ -25,13 +23,23 @@ enum LibrarySection: Hashable {
         switch self {
         case .home: "house"
         case .all: "books.vertical"
-        case .reading: "book"
-        case .finished: "checkmark.circle"
         case .books: "book.closed"
         case .pdfs: "doc.richtext"
         case .comics: "photo.stack"
         case .documents: "doc.text"
         case .collection: "rectangle.stack"
+        }
+    }
+}
+
+enum LibraryStatusFilter: String, CaseIterable, Identifiable {
+    case all, reading, finished
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .all: "All"
+        case .reading: "Reading"
+        case .finished: "Finished"
         }
     }
 }
@@ -55,6 +63,7 @@ struct LibraryView: View {
     @State private var section: LibrarySection? = .home
     @State private var query = ""
     @AppStorage("librarySort") private var sort: LibrarySort = .recent
+    @State private var status: LibraryStatusFilter = .all
     @State private var gridWidth: CGFloat = 0
     @State private var newCollection: String?
     @State private var isDropTarget = false
@@ -130,7 +139,7 @@ struct LibraryView: View {
     private var sidebar: some View {
         List(selection: $section) {
             Section("Library") {
-                ForEach([LibrarySection.home, .all, .reading, .finished], id: \.self) { s in
+                ForEach([LibrarySection.home, .all], id: \.self) { s in
                     Label(s.title, systemImage: s.symbol).tag(s)
                 }
             }
@@ -171,8 +180,6 @@ struct LibraryView: View {
         let state = library.state(book.id)
         switch s {
         case .home, .all: return true
-        case .reading: return state.status == .reading
-        case .finished: return state.status == .finished
         case .books: return [.epub, .mobi, .azw3, .fb2].contains(book.format)
         case .pdfs: return book.format == .pdf
         case .comics: return book.format.isComic
@@ -186,6 +193,11 @@ struct LibraryView: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         let list = library.books.filter { book in
             guard matches(book, s) else { return false }
+            switch status {
+            case .all: break
+            case .reading: guard library.state(book.id).status == .reading else { return false }
+            case .finished: guard library.state(book.id).status == .finished else { return false }
+            }
             guard !q.isEmpty else { return true }
             let st = library.state(book.id)
             return [st.title, st.author, book.url.lastPathComponent, book.format.displayName]
@@ -218,10 +230,10 @@ struct LibraryView: View {
         if library.books.isEmpty && !library.isScanning {
             EmptyLibrary(onAdd: addBooks)
         } else if section == .home && query.isEmpty {
-            HomeView(open: open, menu: { AnyView(contextMenu(for: $0)) }, seeAll: { section = $0 })
+            HomeView(open: open, menu: { AnyView(contextMenu(for: $0)) }, seeAll: { status = $0; section = .all })
         } else {
             ScrollView {
-                if !filtered.isEmpty { gridHeader }
+                if !filtered.isEmpty || status != .all { gridHeader }
                 let metrics = CardMetrics(available: gridWidth)
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(metrics.card), spacing: CardMetrics.gap, alignment: .top), count: metrics.count),
                           alignment: .leading, spacing: 30) {
@@ -242,7 +254,11 @@ struct LibraryView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
             .overlay {
                 if filtered.isEmpty {
-                    if query.isEmpty {
+                    if query.isEmpty && status != .all {
+                        EmptyStateView(symbol: "line.3.horizontal.decrease.circle", title: "No \(status.name) Books",
+                                       detail: "Nothing here matches this filter.", large: true,
+                                       actionTitle: "Show All", action: { status = .all })
+                    } else if query.isEmpty {
                         EmptyStateView(symbol: section?.symbol ?? "books.vertical", title: "Nothing Here Yet",
                                        detail: "Books you add will appear here.", large: true)
                     } else {
@@ -261,6 +277,17 @@ struct LibraryView: View {
                 .lineLimit(1)
             Text(subtitle).foregroundStyle(.secondary)
             Spacer(minLength: 12)
+            Menu {
+                Picker("Show", selection: $status) {
+                    ForEach(LibraryStatusFilter.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text("Show: \(status.name)").foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Show")
             Menu {
                 Picker("Sort by", selection: $sort) {
                     ForEach(LibrarySort.allCases) { Text($0.name).tag($0) }
@@ -467,7 +494,7 @@ struct BookCard: View {
 private struct HomeView: View {
     let open: (BookRecord) -> Void
     let menu: (BookRecord) -> AnyView
-    let seeAll: (LibrarySection) -> Void
+    let seeAll: (LibraryStatusFilter) -> Void
     @State private var library = LibraryStore.shared
 
     var body: some View {
