@@ -296,12 +296,13 @@ final class ClaudeChat {
 
 /// Typeface for Claude's replies, chosen in Settings › Claude.
 enum ChatFont: String, CaseIterable, Identifiable {
-    case charter, newYork, system
+    case seravek, charter, newYork, system
 
     static let key = "chatFont"
     var id: String { rawValue }
     var name: String {
         switch self {
+        case .seravek: "Seravek"
         case .charter: "Charter"
         case .newYork: "New York"
         case .system: "San Francisco"
@@ -309,6 +310,7 @@ enum ChatFont: String, CaseIterable, Identifiable {
     }
     func font(_ size: CGFloat) -> Font {
         switch self {
+        case .seravek: .custom("Seravek", size: size)
         case .charter: .custom("Charter", size: size)
         case .newYork: .system(size: size, design: .serif)
         case .system: .system(size: size)
@@ -949,20 +951,33 @@ struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
 
-    @AppStorage(ChatFont.key) private var face = ChatFont.charter
+    @AppStorage(ChatFont.key) private var face = ChatFont.seravek
     @AppStorage(ChatTextSize.key) private var size = ChatTextSize.standard
 
     private var scale: CGFloat { size / ChatTextSize.standard }
-    private func serif(_ points: CGFloat) -> Font { face.font(points * scale) }
+    private func replyFont(_ points: CGFloat) -> Font { face.font(points * scale) }
+    /// A paragraph that is only bold text acts as a section heading.
+    private var blocks: [Markdown.Block] {
+        Markdown.blocks(text).map { block in
+            if case .paragraph(let t) = block, let m = t.wholeMatch(of: /\*\*([^*]+)\*\*:?/) {
+                return .heading(3, String(m.1))
+            }
+            return block
+        }
+    }
+    /// Extra space between lines, for a line height of 1.6 at body size.
+    private var leading: CGFloat { 5.6 * scale }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let level, let t):
-                    Text(Markdown.attributed(t)).font(serif(level <= 2 ? 17 : 15.5).bold())
+                    Text(Markdown.attributed(t)).font(replyFont(level <= 2 ? 18 : 16.5).weight(.medium))
+                        .foregroundStyle(Color.primary.mix(with: .accentColor, by: 0.18))
+                        .padding(.top, 6)
                 case .paragraph(let t):
-                    Text(Markdown.attributed(t)).font(serif(15.5)).lineSpacing(3.5 * scale)
+                    Text(Markdown.attributed(t)).font(replyFont(16)).lineSpacing(leading)
                 case .code(let c, "mermaid") where rendersDiagrams:
                     MermaidDiagram(source: c)
                 case .code(let c, _):
@@ -973,14 +988,14 @@ struct MarkdownText: View {
                     HStack(alignment: .top, spacing: 8) {
                         RoundedRectangle(cornerRadius: 1.5).fill(.secondary.opacity(0.5)).frame(width: 3)
                         Text(Markdown.attributed(lines.joined(separator: " ")))
-                            .font(serif(15.5).italic()).foregroundStyle(.primary.opacity(0.78))
+                            .font(replyFont(16).italic()).lineSpacing(leading).foregroundStyle(.primary.opacity(0.78))
                     }
                 case .list(let ordered, let items):
                     VStack(alignment: .leading, spacing: 5) {
                         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ordered ? "\(i + 1)." : "•").font(serif(15.5)).foregroundStyle(.secondary).monospacedDigit()
-                                Text(Markdown.attributed(item)).font(serif(15.5)).lineSpacing(3 * scale)
+                                Text(ordered ? "\(i + 1)." : "•").font(replyFont(16)).foregroundStyle(.secondary).monospacedDigit()
+                                Text(Markdown.attributed(item)).font(replyFont(16)).lineSpacing(leading)
                             }
                         }
                     }
@@ -988,7 +1003,7 @@ struct MarkdownText: View {
                     Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 7) {
                         GridRow {
                             ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
-                                Text(Markdown.attributed(cell)).font(serif(14.5).bold())
+                                Text(Markdown.attributed(cell)).font(replyFont(15).weight(.medium))
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -996,7 +1011,7 @@ struct MarkdownText: View {
                             Divider().gridCellUnsizedAxes(.horizontal)
                             GridRow {
                                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                                    Text(Markdown.attributed(cell)).font(serif(14.5)).lineSpacing(2.5 * scale)
+                                    Text(Markdown.attributed(cell)).font(replyFont(15)).lineSpacing(3.5 * scale)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }

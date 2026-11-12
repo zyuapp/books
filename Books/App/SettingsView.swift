@@ -147,7 +147,7 @@ private struct ClaudeSettings: View {
     @AppStorage("claudePath") private var path = ""
     @AppStorage("claudeModel") private var model = ClaudeModel.sonnet.rawValue
     @AppStorage("claudeEffort") private var effort = ClaudeEffort.low.rawValue
-    @AppStorage(ChatFont.key) private var chatFont = ChatFont.charter
+    @AppStorage(ChatFont.key) private var chatFont = ChatFont.seravek
     @AppStorage(ChatTextSize.key) private var chatTextSize = ChatTextSize.standard
     @State private var detected: String?
     @State private var testResult: String?

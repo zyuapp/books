@@ -272,7 +272,7 @@ private struct TopBar: View {
     let theme: ReaderTheme
 
     var body: some View {
-        HeaderBar(title: model.title.mainTitle, subtitle: subtitle, serif: true, titleColor: theme.foregroundColor.opacity(0.85)) {
+        HeaderBar(title: model.title.mainTitle, subtitle: subtitle, titleFont: .custom("Seravek", size: 14).weight(.medium), titleColor: theme.foregroundColor.opacity(0.85)) {
             HeaderButtonGroup {
                 HeaderButton(symbol: "chevron.left", label: "Back to Library", tooltip: "Back to Library (⇧⌘L)") {
                     OpenBridge.shared.showLibrary()

@@ -10,7 +10,7 @@ struct HeaderBar<Leading: View, Trailing: View>: View {
 
     var title: String
     var subtitle: String?
-    var serif = false
+    var titleFont: Font = .system(size: 14, weight: .semibold)
     var titleColor: Color?
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
@@ -19,7 +19,7 @@ struct HeaderBar<Leading: View, Trailing: View>: View {
         ZStack {
             VStack(spacing: 1) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: serif ? .serif : .default))
+                    .font(titleFont)
                     .lineLimit(1)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle).font(.callout).foregroundStyle(.primary.opacity(0.62)).lineLimit(1)
