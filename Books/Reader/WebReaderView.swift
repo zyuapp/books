@@ -515,7 +515,7 @@ final class ReaderWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         guard model?.selection != nil else { return }
         let items: [(String, String, Selector)] = [
-            ("Ask Claude", "sparkles", #selector(menuAskClaude)),
+            ("Ask ChatGPT", "sparkles", #selector(menuAskAssistant)),
             ("Highlight", "highlighter", #selector(menuHighlight)),
             ("Add Note", "note.text.badge.plus", #selector(menuNote)),
         ]
@@ -528,7 +528,7 @@ final class ReaderWebView: WKWebView {
         menu.insertItem(.separator(), at: items.count)
     }
 
-    @objc private func menuAskClaude() { model?.askClaude(action: nil) }
+    @objc private func menuAskAssistant() { model?.askAssistant(action: nil) }
     @objc private func menuHighlight() { model?.highlightSelection(.yellow) }
     @objc private func menuNote() { model?.addNoteToSelection() }
 }

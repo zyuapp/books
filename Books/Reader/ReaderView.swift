@@ -25,7 +25,7 @@ struct ReaderWindow: View {
 
 struct ReaderView: View {
     @State private var model: ReaderModel
-    @State private var chat: ClaudeChat
+    @State private var chat: AssistantChat
     @State private var settings = ReaderSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     /// Engines and panels wait for the screen fade: building them during it drops frames.
@@ -35,21 +35,21 @@ struct ReaderView: View {
     init(book: BookRecord) {
         let m = ReaderModel(book: book)
         _model = State(initialValue: m)
-        _chat = State(initialValue: ClaudeChat(reader: m))
+        _chat = State(initialValue: AssistantChat(reader: m))
     }
 
     private var theme: ReaderTheme { settings.prefs.theme.resolved(dark: colorScheme == .dark) }
-    private var chromeShown: Bool { model.chromeVisible || model.panel != nil || model.showClaude }
+    private var chromeShown: Bool { model.chromeVisible || model.panel != nil || model.showAssistant }
     /// The page lays out beside open panels, so they never cover what's being read.
     private var panelInset: CGFloat { model.panel == nil ? 0 : SidePanel.width + SidePanel.edgeInset }
-    private var claudeInset: CGFloat { model.showClaude && !model.claudeExpanded ? ClaudePanel.compactWidth + 12 : 0 }
+    private var assistantInset: CGFloat { model.showAssistant && !model.assistantExpanded ? AssistantPanel.compactWidth + 12 : 0 }
 
     var body: some View {
         ZStack {
             theme.backgroundColor.ignoresSafeArea()
             content
                 .padding(.leading, panelInset)
-                .padding(.trailing, claudeInset)
+                .padding(.trailing, assistantInset)
                 .transaction { $0.animation = nil }
                 .ignoresSafeArea()
             if !model.isContentReady && model.loadError == nil {
@@ -146,7 +146,7 @@ struct ReaderView: View {
                     if model.publication != nil && model.chromeVisible {
                         BottomBar(model: model, theme: theme)
                             .padding(.leading, panelInset)
-                            .padding(.trailing, claudeInset)
+                            .padding(.trailing, assistantInset)
                             .transition(.opacity.combined(with: .offset(y: 12)))
                     }
                 }
@@ -163,12 +163,12 @@ struct ReaderView: View {
                             .allowsHitTesting(model.panel != nil)
                             .accessibilityHidden(model.panel == nil)
                     }
-                    if !(model.showClaude && model.claudeExpanded) { Spacer(minLength: 0) }
-                    if model.showClaude {
-                        ClaudePanel(reader: model, chat: chat, theme: theme)
-                            .padding(.trailing, model.claudeExpanded ? 0 : 12)
-                            .padding(.top, model.claudeExpanded ? HeaderBar<EmptyView, EmptyView>.height : 56)
-                            .padding(.bottom, model.claudeExpanded ? 0 : 12)
+                    if !(model.showAssistant && model.assistantExpanded) { Spacer(minLength: 0) }
+                    if model.showAssistant {
+                        AssistantPanel(reader: model, chat: chat, theme: theme)
+                            .padding(.trailing, model.assistantExpanded ? 0 : 12)
+                            .padding(.top, model.assistantExpanded ? HeaderBar<EmptyView, EmptyView>.height : 56)
+                            .padding(.bottom, model.assistantExpanded ? 0 : 12)
                             .transition(.move(edge: .trailing))
                     }
                 }
@@ -213,8 +213,8 @@ struct ReaderView: View {
             .animation(Motion.popup, value: model.showSettings)
             .animation(Motion.popup, value: model.footnote)
             .animation(Motion.panel, value: model.panel)
-            .animation(Motion.panel, value: model.showClaude)
-            .animation(Motion.panel, value: model.claudeExpanded)
+            .animation(Motion.panel, value: model.showAssistant)
+            .animation(Motion.panel, value: model.assistantExpanded)
             .animation(Motion.popup, value: model.zoomPercent == nil)
             .animation(Motion.popup, value: model.chromeVisible)
         }
@@ -293,8 +293,8 @@ private struct TopBar: View {
                              color: model.isBookmarked ? Color(hex: "#E25B45") : nil) {
                     model.toggleBookmark()
                 }
-                HeaderButton(symbol: "sparkles", label: "Ask Claude", tooltip: "Ask Claude (⌘L)", active: model.showClaude) {
-                    if model.showClaude { model.showClaude = false } else { model.askClaude(action: nil) }
+                HeaderButton(symbol: "sparkles", label: "Ask ChatGPT", tooltip: "Ask ChatGPT (⌘L)", active: model.showAssistant) {
+                    if model.showAssistant { model.showAssistant = false } else { model.askAssistant(action: nil) }
                 }
             }
             .readerOverlay()
@@ -463,8 +463,8 @@ private struct SelectionBar: View {
 
             divider
 
-            Button { model.askClaude(action: nil) } label: {
-                Label("Ask Claude", systemImage: "sparkles")
+            Button { model.askAssistant(action: nil) } label: {
+                Label("Ask ChatGPT", systemImage: "sparkles")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
@@ -475,10 +475,10 @@ private struct SelectionBar: View {
             .buttonStyle(.plain)
             .padding(.leading, 6)
             .padding(.trailing, 4)
-            .tooltip("Ask Claude about this passage (⌘L). Right-click for quick actions.")
+            .tooltip("Ask ChatGPT about this passage (⌘L). Right-click for quick actions.")
             .contextMenu {
-                ForEach(ClaudeQuickAction.allCases) { a in
-                    Button(a.title, systemImage: a.symbol) { model.askClaude(action: a) }
+                ForEach(AssistantQuickAction.allCases) { a in
+                    Button(a.title, systemImage: a.symbol) { model.askAssistant(action: a) }
                 }
             }
         }

@@ -36,7 +36,7 @@ struct SearchResult: Identifiable, Hashable {
     }
 }
 
-/// Plain text of every spine item, for search and Claude's whole-book context.
+/// Plain text of every spine item, for search and ChatGPT's whole-book context.
 enum TextExtractor {
     static func texts(for publication: Publication, bookID: String) -> [String] {
         switch publication.kind {

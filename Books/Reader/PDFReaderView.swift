@@ -765,7 +765,7 @@ final class ReaderPDFView: PDFView {
         let menu = super.menu(for: event) ?? NSMenu()
         guard model?.selection != nil else { return menu }
         let items: [(String, String, Selector)] = [
-            ("Ask Claude", "sparkles", #selector(menuAskClaude)),
+            ("Ask ChatGPT", "sparkles", #selector(menuAskAssistant)),
             ("Highlight", "highlighter", #selector(menuHighlight)),
             ("Add Note", "note.text.badge.plus", #selector(menuNote)),
         ]
@@ -779,7 +779,7 @@ final class ReaderPDFView: PDFView {
         return menu
     }
 
-    @objc private func menuAskClaude() { model?.askClaude(action: nil) }
+    @objc private func menuAskAssistant() { model?.askAssistant(action: nil) }
     @objc private func menuHighlight() { model?.highlightSelection(.yellow) }
     @objc private func menuNote() { model?.addNoteToSelection() }
 }

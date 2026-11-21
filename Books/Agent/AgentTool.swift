@@ -1,6 +1,6 @@
 import Foundation
 
-/// One thing Claude can do in Books. Every tool is declared once here and served to Claude by `LocalToolServer`;
+/// One thing ChatGPT can do in Books. Every tool is declared once here and offered to ChatGPT by `ChatGPTService`;
 /// adding a capability means adding an `AgentTool` to a catalog in `AgentToolbox`.
 struct AgentTool {
     enum Kind {
@@ -49,7 +49,7 @@ struct AgentTool {
     }
 }
 
-/// What a tool hands back: text for Claude, and for changes, a record the user sees (with Undo).
+/// What a tool hands back: text for ChatGPT, and for changes, a record the user sees (with Undo).
 struct ToolResult {
     var text: String
     var activity: AgentActivity?
@@ -57,7 +57,7 @@ struct ToolResult {
     static func text(_ text: String) -> ToolResult { ToolResult(text: text) }
 }
 
-/// A visible record of something Claude did, shown in the conversation.
+/// A visible record of something ChatGPT did, shown in the conversation.
 struct AgentActivity: Identifiable {
     let id = UUID()
     var symbol: String
@@ -118,7 +118,7 @@ struct ToolArguments {
     }
 }
 
-/// The book and conversation a run of Claude belongs to.
+/// The book and conversation a run of ChatGPT belongs to.
 @MainActor
 final class AgentSession {
     weak var reader: ReaderModel?

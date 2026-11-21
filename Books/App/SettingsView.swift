@@ -3,12 +3,12 @@ import SwiftUI
 
 struct SettingsView: View {
     private enum Tab: String, CaseIterable {
-        case general = "General", reading = "Reading", claude = "Claude"
+        case general = "General", reading = "Reading", chatGPT = "ChatGPT"
         var symbol: String {
             switch self {
             case .general: "gearshape"
             case .reading: "textformat.size"
-            case .claude: "sparkles"
+            case .chatGPT: "sparkles"
             }
         }
     }
@@ -39,7 +39,7 @@ struct SettingsView: View {
             switch tab {
             case .general: GeneralSettings()
             case .reading: ReadingSettingsTab()
-            case .claude: ClaudeSettings()
+            case .chatGPT: ChatGPTSettings()
             }
         }
         .frame(width: 500)
@@ -70,7 +70,7 @@ private struct GeneralSettings: View {
                 Text("Library")
             } footer: {
                 Text(library.usesICloud
-                     ? "Books, positions, highlights, notes, Claude conversations and settings sync through iCloud Drive."
+                     ? "Books, positions, highlights, notes, ChatGPT conversations and settings sync through iCloud Drive."
                      : "Turn on iCloud Drive to sync your library across Macs.")
                     .formFooterStyle()
             }
@@ -143,40 +143,66 @@ private struct ReadingSettingsTab: View {
     }
 }
 
-private struct ClaudeSettings: View {
-    @AppStorage("claudePath") private var path = ""
-    @AppStorage("claudeModel") private var model = ClaudeModel.sonnet.rawValue
-    @AppStorage("claudeEffort") private var effort = ClaudeEffort.low.rawValue
+private struct ChatGPTSettings: View {
+    @AppStorage(ChatSettings.modelKey) private var model = ChatGPTModel.fallback.slug
+    @AppStorage(ChatSettings.effortKey) private var effort = "low"
     @AppStorage(ChatFont.key) private var chatFont = ChatFont.seravek
     @AppStorage(ChatTextSize.key) private var chatTextSize = ChatTextSize.standard
-    @State private var detected: String?
-    @State private var testResult: String?
-    @State private var testing = false
+    @State private var signOutNote: String?
+    private var account: ChatGPTAccount { .shared }
 
     var body: some View {
         Form {
             Section {
-                LabeledContent("Claude Code") {
+                switch account.status {
+                case .signedIn:
+                    LabeledContent("Account") {
+                        HStack(spacing: 8) {
+                            Text(account.email ?? "Signed in").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            Button("Sign Out") { signOut() }
+                        }
+                    }
+                    LabeledContent("Usage") {
+                        Button("Manage Usage") { NSWorkspace.shared.open(ChatGPTAccount.usageURL) }
+                    }
+                case .signingIn:
                     HStack(spacing: 8) {
-                        Text(testResult ?? detected.map { $0.replacingOccurrences(of: NSHomeDirectory(), with: "~") } ?? "Not found")
-                            .foregroundStyle(detected == nil ? .red : .secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                        Button(testing ? "Testing…" : "Test") { test() }.disabled(testing || detected == nil)
+                        ProgressView().controlSize(.small)
+                        Text("Finish signing in in your browser…").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") { account.cancelSignIn() }
+                    }
+                case .signedOut:
+                    HStack(spacing: 10) {
+                        ContinueWithChatGPTButton { account.signIn() }
+                        if account.hasSavedAccount {
+                            Button("Use Another Account") { account.signIn(anotherAccount: true) }
+                                .buttonStyle(.link)
+                        }
                     }
                 }
-                TextField("Custom path", text: $path, prompt: Text("Auto-detect")).textFieldStyle(.roundedBorder)
+                if let problem = account.problem, account.status != .signingIn {
+                    Text(problem).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                if let signOutNote {
+                    Text(signOutNote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             } header: {
-                Text("Connection")
+                Text("Use your ChatGPT plan")
             } footer: {
-                Text("Uses your Claude subscription through Claude Code. Run `claude` in Terminal once to sign in.")
+                Text("Questions you ask in Books use your ChatGPT Plus or Pro plan. Review and limit Books’ usage in ChatGPT settings.")
                     .formFooterStyle()
             }
             Section("Defaults") {
                 Picker("Model", selection: $model) {
-                    ForEach(ClaudeModel.allCases) { Text($0.name).tag($0.rawValue) }
+                    ForEach(ChatSettings.models) { Text($0.name).tag($0.slug) }
                 }
-                Picker("Effort", selection: $effort) {
-                    ForEach(ClaudeEffort.allCases) { Text($0.name).tag($0.rawValue) }
+                let efforts = ChatSettings.model(model).efforts
+                if !efforts.isEmpty {
+                    Picker("Effort", selection: Binding(get: { ChatSettings.resolve(model: model, effort: effort).effort },
+                                                        set: { effort = $0 })) {
+                        ForEach(efforts, id: \.self) { Text(ChatGPTModel.effortName($0)).tag($0) }
+                    }
                 }
             }
             Section("Chat") {
@@ -193,27 +219,15 @@ private struct ClaudeSettings: View {
             }
         }
         .settingsTab()
-        .task { detected = await Task.detached { ClaudeService.executable()?.path }.value }
-        .onChange(of: path) { _, _ in
-            testResult = nil
-            Task { detected = await Task.detached { ClaudeService.executable()?.path }.value }
-        }
+        .task { if account.status == .signedIn { await account.loadModels() } }
     }
 
-    private func test() {
-        testing = true
-        testResult = nil
+    private func signOut() {
+        signOutNote = nil
         Task {
-            var text = ""
-            do {
-                for try await event in ClaudeService.stream(prompt: "Reply with exactly: Ready to read.", system: "You are a test.", model: .haiku, effort: .low) {
-                    if case .text(let t) = event { text += t }
-                }
-                testResult = "✓ " + text.trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch {
-                testResult = error.localizedDescription
+            if !(await account.signOut()) {
+                signOutNote = "Signed out on this Mac, but OpenAI didn’t confirm it. You can disconnect Books in ChatGPT settings."
             }
-            testing = false
         }
     }
 }

@@ -2,13 +2,13 @@ import Foundation
 
 /// Mirrors app-wide preferences between UserDefaults and `Reading Data/Settings.plist`, so every Mac
 /// sharing the library shares them. Each key keeps its own timestamp; the newest write wins.
-/// Per-Mac values (Claude path, open book, window state, file paths) stay out.
+/// Per-Mac values (ChatGPT sign-in, open book, window state, file paths) stay out.
 @MainActor
 final class SyncedSettings {
     static let shared = SyncedSettings()
 
     static let keys = ["readerPreferences", "librarySort", "coverSize", "autoCopyOpenedBooks",
-                       "claudeModel", "claudeEffort", "chatFont", "chatTextSize"]
+                       "chatModel", "chatEffort", "chatFont", "chatTextSize"]
     private static let updatedKey = "syncedSettingsUpdated"
 
     private var fileURL: URL?

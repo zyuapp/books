@@ -26,8 +26,6 @@ struct BooksApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Writing a large prompt to a Claude process that already exited must not kill the app.
-        signal(SIGPIPE, SIG_IGN)
         Task { @MainActor in
             LibraryStore.shared.start()
             Updater.shared.start()
@@ -295,23 +293,23 @@ struct BooksCommands: Commands {
         CommandMenu("Book") {
             Button("Add Bookmark") { reader?.toggleBookmark() }.keyboardShortcut("d")
                 .disabled(reader == nil)
-            Button("Ask Claude") {
+            Button("Ask ChatGPT") {
                 guard let reader else { return }
-                if reader.showClaude && reader.selection == nil && reader.claudeInputFocused {
-                    withAnimation(Motion.panel) { reader.showClaude = false }
+                if reader.showAssistant && reader.selection == nil && reader.assistantInputFocused {
+                    withAnimation(Motion.panel) { reader.showAssistant = false }
                     reader.engine?.focusContent()
                 } else {
-                    reader.askClaude(action: nil)
+                    reader.askAssistant(action: nil)
                 }
             }
             .keyboardShortcut("l")
             .disabled(reader == nil)
-            Button("New Claude Chat") { reader?.newClaudeChat() }
+            Button("New ChatGPT Chat") { reader?.newAssistantChat() }
                 .keyboardShortcut("n")
                 .disabled(reader == nil)
-            Menu("Ask Claude to…") {
-                ForEach(ClaudeQuickAction.allCases) { a in
-                    Button(a.title) { reader?.askClaude(action: a) }
+            Menu("Ask ChatGPT to…") {
+                ForEach(AssistantQuickAction.allCases) { a in
+                    Button(a.title) { reader?.askAssistant(action: a) }
                 }
             }
             .disabled(reader == nil)
@@ -398,7 +396,7 @@ enum LegacyDefaults {
         guard !defaults.bool(forKey: "migratedLegacyDefaults") else { return }
         defaults.set(true, forKey: "migratedLegacyDefaults")
         guard let old = UserDefaults(suiteName: "com.zyuapp.books")?.dictionaryRepresentation() else { return }
-        let keys = ["readerPreferences", "librarySort", "coverSize", "claudeModel", "claudePath", "autoCopyOpenedBooks", "externalBookPaths"]
+        let keys = ["readerPreferences", "librarySort", "coverSize", "autoCopyOpenedBooks", "externalBookPaths"]
         for key in keys where defaults.object(forKey: key) == nil {
             if let value = old[key] { defaults.set(value, forKey: key) }
         }

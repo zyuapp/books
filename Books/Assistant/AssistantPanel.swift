@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 
 @MainActor @Observable
-final class ClaudeChat {
+final class AssistantChat {
     var thread: ChatThread?
     var input = ""
     /// Passage the next question is about, shown above the composer until sent.
@@ -11,18 +11,19 @@ final class ClaudeChat {
     /// The part of the streaming answer on screen so far.
     var streamingText = ""
     var isStreaming = false
-    var error: String?
+    var error: ChatProblem?
     /// What a running tool is doing, e.g. "Reading your highlights".
     var toolProgress: String?
-    /// Changes Claude made this session, kept so they can be undone. `messageID` is nil while the answer streams.
+    /// Changes ChatGPT made this session, kept so they can be undone. `messageID` is nil while the answer streams.
     var activities: [ChatActivity] = []
-    /// Undos since the last question, so Claude knows its change was reverted on purpose.
+    /// Undos since the last question, so ChatGPT knows its change was reverted on purpose.
     @ObservationIgnored private var undoneSinceLastSend: [String] = []
-    var model: ClaudeModel {
-        didSet { UserDefaults.standard.set(model.rawValue, forKey: "claudeModel") }
+    /// Slug of the ChatGPT model to ask.
+    var model: String {
+        didSet { UserDefaults.standard.set(model, forKey: ChatSettings.modelKey) }
     }
-    var effort: ClaudeEffort {
-        didSet { UserDefaults.standard.set(effort.rawValue, forKey: "claudeEffort") }
+    var effort: String {
+        didSet { UserDefaults.standard.set(effort, forKey: ChatSettings.effortKey) }
     }
 
     /// Scroll offset per conversation while the book is open; absent means pinned to the bottom.
@@ -38,8 +39,8 @@ final class ClaudeChat {
 
     init(reader: ReaderModel) {
         self.reader = reader
-        model = ClaudeModel(rawValue: UserDefaults.standard.string(forKey: "claudeModel") ?? "") ?? .sonnet
-        effort = ClaudeEffort(rawValue: UserDefaults.standard.string(forKey: "claudeEffort") ?? "") ?? .low
+        model = UserDefaults.standard.string(forKey: ChatSettings.modelKey) ?? ChatGPTModel.fallback.slug
+        effort = UserDefaults.standard.string(forKey: ChatSettings.effortKey) ?? "low"
     }
 
     /// The conversation to continue: the open one, else the latest, as long as it was active within the last hour.
@@ -50,7 +51,7 @@ final class ClaudeChat {
         return reader?.state.liveChats.first { !$0.messages.isEmpty && $0.updated > cutoff }
     }
 
-    func begin(with seed: ClaudeRequestSeed) {
+    func begin(with seed: AssistantRequestSeed) {
         if let recent = recentThread {
             if recent.id != thread?.id { open(recent) }
         } else if thread?.messages.isEmpty == false {
@@ -152,10 +153,7 @@ final class ClaudeChat {
         task = Task {
             let page = await reader.engine?.currentPageText() ?? ""
             let system = Self.systemPrompt(reader: reader)
-            var prompt = Self.prompt(page: page, passage: passage, history: history, question: question)
-            if !undone.isEmpty {
-                prompt = "<app_events>\nThe reader pressed Undo on: " + undone.joined(separator: "; ") + "\n</app_events>\n\n" + prompt
-            }
+            let input = Self.input(page: page, passage: passage, history: history, question: question, undone: undone)
             let session = AgentSession(reader: reader)
             session.onActivity = { [weak self] activity in
                 withAnimation(.snappy) { self?.activities.append(ChatActivity(activity: activity)) }
@@ -163,22 +161,18 @@ final class ClaudeChat {
             session.onProgress = { [weak self] label in
                 withAnimation(.easeOut(duration: 0.2)) { self?.toolProgress = label }
             }
-            let access = await LocalToolServer.shared.register(session)
-            defer {
-                if let token = access?.token { LocalToolServer.shared.unregister(token) }
-                toolProgress = nil
-            }
+            defer { toolProgress = nil }
+            let selection = ChatSettings.resolve(model: model, effort: effort)
             do {
-                for try await event in ClaudeService.stream(prompt: prompt, system: system, model: model, effort: effort, toolsConfig: access?.config) {
+                for try await event in ChatGPTService.stream(input: input, instructions: system, model: selection.model,
+                                                             effort: selection.effort, session: session) {
                     if Task.isCancelled { break }
                     switch event {
                     case .text(let t):
-                        if let label = toolProgress, Self.webToolLabels.values.contains(label) { toolProgress = nil }
+                        if toolProgress == Self.searchingLabel { toolProgress = nil }
                         received.append(contentsOf: t)
-                    case .tool(let name):
-                        if let label = Self.webToolLabels[name] {
-                            withAnimation(.easeOut(duration: 0.2)) { toolProgress = label }
-                        }
+                    case .searching:
+                        withAnimation(.easeOut(duration: 0.2)) { toolProgress = Self.searchingLabel }
                     case .finished:
                         break
                     }
@@ -191,7 +185,7 @@ final class ClaudeChat {
             } catch {
                 guard !Task.isCancelled else { return }
                 if !received.isEmpty { appendAssistant(String(received)) }
-                self.error = error.localizedDescription
+                self.error = ChatProblem(error)
             }
             revealTask?.cancel()
             revealTask = nil
@@ -250,7 +244,7 @@ final class ClaudeChat {
         error = nil
     }
 
-    private static let webToolLabels = ["WebSearch": "Searching the web", "WebFetch": "Reading a web page"]
+    private static let searchingLabel = "Searching the web"
 
     private static func systemPrompt(reader: ReaderModel) -> String {
         let author = reader.publication?.author ?? reader.state.author
@@ -262,9 +256,9 @@ final class ClaudeChat {
         You're given the text of the page they're on. When a question needs more of the book, such as the chapter, \
         earlier events or a theme across the book, use read_text, search_text and get_table_of_contents to look it up. \
         Answer from the book text when it's relevant, and from your own knowledge otherwise. \
-        You can search the web with WebSearch and read pages with WebFetch. Use them when the reader asks you to check \
-        or look something up, or when the answer depends on facts outside the book that you're unsure of or that may \
-        have changed. Cite what you found as Markdown links to the sources. \
+        You can search the web. Do so when the reader asks you to check or look something up, or when the answer \
+        depends on facts outside the book that you're unsure of or that may have changed. Cite what you found as \
+        Markdown links to the sources. \
         Be concise and specific: short paragraphs, quotes from the text when helpful, light Markdown (bold, italics, short lists). \
         The chat draws ```mermaid code blocks as diagrams: when a diagram, flowchart, timeline or map of ideas would help, or the \
         reader asks for one, include it as a mermaid block rather than describing it. The panel is narrow, so lay diagrams out \
@@ -274,27 +268,66 @@ final class ClaudeChat {
         """
     }
 
-    private static func prompt(page: String, passage: String?, history: [ChatMessage], question: String) -> String {
+    /// The conversation as Responses input: earlier turns as messages, then the page, passage and question.
+    private static func input(page: String, passage: String?, history: [ChatMessage], question: String, undone: [String]) -> [[String: Any]] {
+        var items: [[String: Any]] = history.map { m in
+            let quote = m.passage.map { "(About the passage “\($0)”) " } ?? ""
+            return ["type": "message", "role": m.role == .user ? "user" : "assistant", "content": quote + m.text]
+        }
         var parts: [String] = []
+        if !undone.isEmpty { parts.append("<app_events>\nThe reader pressed Undo on: " + undone.joined(separator: "; ") + "\n</app_events>") }
         if !page.isEmpty {
             let limit = 150_000
             let clipped = page.count > limit ? String(page.prefix(limit)) + "\n[…truncated…]" : page
             parts.append("<current_page>\n\(clipped)\n</current_page>")
         }
         if let passage { parts.append("<selected_passage>\n\(passage)\n</selected_passage>") }
-        if !history.isEmpty {
-            let convo = history.map { m in
-                let quote = m.passage.map { "(about the passage “\($0)”) " } ?? ""
-                return "\(m.role == .user ? "Reader" : "You"): \(quote)\(m.text)"
-            }.joined(separator: "\n\n")
-            parts.append("<conversation_so_far>\n\(convo)\n</conversation_so_far>")
-        }
         parts.append(question)
-        return parts.joined(separator: "\n\n")
+        items.append(["type": "message", "role": "user", "content": parts.joined(separator: "\n\n")])
+        return items
     }
 }
 
-/// Typeface for Claude's replies, chosen in Settings › Claude.
+/// The model and effort the reader picked, shared by the composer and Settings.
+@MainActor
+enum ChatSettings {
+    static let modelKey = "chatModel"
+    static let effortKey = "chatEffort"
+
+    static var models: [ChatGPTModel] {
+        let list = ChatGPTAccount.shared.models
+        return list.isEmpty ? [ChatGPTModel.fallback] : list
+    }
+
+    static func model(_ slug: String) -> ChatGPTModel {
+        models.first { $0.slug == slug } ?? models[0]
+    }
+
+    /// Falls back to the first available model, and to its default effort when the chosen one isn't offered.
+    static func resolve(model slug: String, effort: String) -> (model: String, effort: String) {
+        let m = model(slug)
+        if m.efforts.isEmpty || m.efforts.contains(effort) { return (m.slug, effort) }
+        return (m.slug, m.defaultEffort ?? m.efforts[0])
+    }
+}
+
+/// An error shown in the conversation, with the action that resolves it.
+struct ChatProblem: Equatable {
+    enum Kind { case general, usageLimit, signedOut }
+    var message: String
+    var kind: Kind
+
+    init(_ error: Error) {
+        message = error.localizedDescription
+        switch error {
+        case ChatGPTError.usageLimit: kind = .usageLimit
+        case ChatGPTAuthError.sessionEnded: kind = .signedOut
+        default: kind = .general
+        }
+    }
+}
+
+/// Typeface for ChatGPT's replies, chosen in Settings › ChatGPT.
 enum ChatFont: String, CaseIterable, Identifiable {
     case seravek, charter, newYork, system
 
@@ -318,7 +351,7 @@ enum ChatFont: String, CaseIterable, Identifiable {
     }
 }
 
-/// Reply text size in points, chosen in Settings › Claude; the rest of the conversation scales with it.
+/// Reply text size in points, chosen in Settings › ChatGPT; the rest of the conversation scales with it.
 enum ChatTextSize {
     static let key = "chatTextSize"
     static let standard = 15.5
@@ -334,9 +367,9 @@ struct ChatActivity: Identifiable {
     var undone = false
 }
 
-struct ClaudePanel: View {
+struct AssistantPanel: View {
     let reader: ReaderModel
-    @Bindable var chat: ClaudeChat
+    @Bindable var chat: AssistantChat
     let theme: ReaderTheme
     @FocusState private var inputFocused: Bool
     @State private var confirmingClearAll = false
@@ -353,51 +386,59 @@ struct ClaudePanel: View {
 
     var body: some View {
         ZStack {
-            if reader.claudeShowsHistory {
+            if reader.assistantShowsHistory {
                 history
                     .transition(.move(edge: .leading).combined(with: .opacity))
             } else {
                 VStack(spacing: 0) {
                     header
-                    if !reader.claudeExpanded { Divider().opacity(0.35) }
+                    if !reader.assistantExpanded { Divider().opacity(0.35) }
                     conversation
-                    composer
+                    if ChatGPTAccount.shared.status == .signedIn {
+                        composer
+                        planUsage
+                    } else {
+                        ChatGPTSignInCard(compact: !reader.assistantExpanded)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, reader.assistantExpanded ? 20 : 12)
+                            .frame(maxWidth: Self.readableWidth)
+                    }
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(Motion.panel, value: reader.claudeShowsHistory)
-        .frame(maxWidth: reader.claudeExpanded ? .infinity : Self.compactWidth)
-        .modifier(PanelSurface(expanded: reader.claudeExpanded, theme: theme))
+        .animation(Motion.panel, value: reader.assistantShowsHistory)
+        .frame(maxWidth: reader.assistantExpanded ? .infinity : Self.compactWidth)
+        .modifier(PanelSurface(expanded: reader.assistantExpanded, theme: theme))
         .readerOverlay()
-        .onChange(of: reader.claudeDraft) { _, seed in
-            if let seed { chat.begin(with: seed); reader.claudeShowsHistory = false; reader.claudeDraft = nil }
+        .onChange(of: reader.assistantDraft) { _, seed in
+            if let seed { chat.begin(with: seed); reader.assistantShowsHistory = false; reader.assistantDraft = nil }
         }
-        .onChange(of: reader.claudeNewThreadRequested) { _, requested in
+        .onChange(of: reader.assistantNewThreadRequested) { _, requested in
             if requested { startNewThread() }
         }
-        .onChange(of: reader.claudeFocusRequest) { _, _ in
-            reader.claudeShowsHistory = false
+        .onChange(of: reader.assistantFocusRequest) { _, _ in
+            reader.assistantShowsHistory = false
             focusInput()
         }
-        .onChange(of: inputFocused) { _, f in reader.claudeInputFocused = f }
+        .onChange(of: inputFocused) { _, f in reader.assistantInputFocused = f }
         .onAppear {
-            if let seed = reader.claudeDraft {
+            if let seed = reader.assistantDraft {
                 chat.begin(with: seed)
-                reader.claudeDraft = nil
+                reader.assistantDraft = nil
             } else {
                 chat.dropUnusedPassage()
             }
-            if reader.claudeNewThreadRequested { startNewThread() }
+            if reader.assistantNewThreadRequested { startNewThread() }
             focusInput()
         }
-        .onDisappear { reader.claudeInputFocused = false }
+        .onDisappear { reader.assistantInputFocused = false }
     }
 
     private func startNewThread() {
-        reader.claudeNewThreadRequested = false
+        reader.assistantNewThreadRequested = false
         chat.newThread()
-        reader.claudeShowsHistory = false
+        reader.assistantShowsHistory = false
     }
 
     /// Focus set during the same update as the field's insertion is dropped, so it waits a run-loop turn.
@@ -409,30 +450,30 @@ struct ClaudePanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if !reader.claudeExpanded { ClaudeAvatar(size: 30) }
-            Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "Claude") : reader.claudeExpanded ? "" : "Claude")
-                .font(reader.claudeExpanded ? .subheadline.weight(.medium) : .headline)
-                .foregroundStyle(reader.claudeExpanded ? .secondary : .primary)
+            if !reader.assistantExpanded { AssistantAvatar(size: 30) }
+            Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "ChatGPT") : reader.assistantExpanded ? "" : "ChatGPT")
+                .font(reader.assistantExpanded ? .subheadline.weight(.medium) : .headline)
+                .foregroundStyle(reader.assistantExpanded ? .secondary : .primary)
                 .lineLimit(1)
             Spacer(minLength: 8)
             HStack(spacing: 2) {
-                PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.claudeShowsHistory = true }
+                PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.assistantShowsHistory = true }
                 PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                     chat.newThread()
                     inputFocused = true
                 }
-                PanelIconButton(symbol: reader.claudeExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                label: reader.claudeExpanded ? "Make Smaller" : "Expand") {
-                    withAnimation(Motion.panel) { reader.claudeExpanded.toggle() }
+                PanelIconButton(symbol: reader.assistantExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                label: reader.assistantExpanded ? "Make Smaller" : "Expand") {
+                    withAnimation(Motion.panel) { reader.assistantExpanded.toggle() }
                 }
                 PanelIconButton(symbol: "xmark", label: "Close") {
-                    withAnimation(Motion.panel) { reader.showClaude = false }
+                    withAnimation(Motion.panel) { reader.showAssistant = false }
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, reader.claudeExpanded ? 6 : 12)
-        .frame(maxWidth: reader.claudeExpanded ? .infinity : Self.readableWidth)
+        .padding(.vertical, reader.assistantExpanded ? 6 : 12)
+        .frame(maxWidth: reader.assistantExpanded ? .infinity : Self.readableWidth)
         .frame(maxWidth: .infinity)
     }
 
@@ -479,12 +520,12 @@ struct ClaudePanel: View {
                         .id("streaming")
                     }
                     if let error = chat.error {
-                        ErrorCard(message: error)
+                        ErrorCard(problem: error)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(.horizontal, reader.claudeExpanded ? 24 : 16)
-                .padding(.top, reader.claudeExpanded ? 28 : 16)
+                .padding(.horizontal, reader.assistantExpanded ? 24 : 16)
+                .padding(.top, reader.assistantExpanded ? 28 : 16)
                 .padding(.bottom, 52)
                 .frame(maxWidth: Self.readableWidth)
                 .fixedSize(horizontal: false, vertical: true)
@@ -543,11 +584,11 @@ struct ClaudePanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(chat.pendingPassage != nil || chat.thread?.passage != nil ? "Ask about this passage" : "Ask about this book")
                     .font(.system(size: 22, weight: .semibold))
-                Text("Claude can also find your place, highlight, bookmark and change reading settings. Uses your Claude subscription.")
+                Text("ChatGPT can also find your place, highlight, bookmark and change reading settings.")
                     .font(.body).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-            capabilitiesRow
+            if ChatGPTAccount.shared.status == .signedIn { capabilitiesRow }
         }
         .padding(.top, 2)
     }
@@ -590,43 +631,47 @@ struct ClaudePanel: View {
                       : chat.thread?.messages.isEmpty == false ? "Ask a follow-up…" : "Ask anything about this book…",
                       text: $chat.input, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: (reader.claudeExpanded ? 15.5 : 13.5) * textSize / ChatTextSize.standard))
-                .lineLimit(reader.claudeExpanded ? 3...12 : 1...7)
-                .padding(.horizontal, reader.claudeExpanded ? 4 : 0)
-                .padding(.top, reader.claudeExpanded ? 4 : 0)
+                .font(.system(size: (reader.assistantExpanded ? 15.5 : 13.5) * textSize / ChatTextSize.standard))
+                .lineLimit(reader.assistantExpanded ? 3...12 : 1...7)
+                .padding(.horizontal, reader.assistantExpanded ? 4 : 0)
+                .padding(.top, reader.assistantExpanded ? 4 : 0)
                 .focused($inputFocused)
                 .onSubmit { chat.send() }
-                .accessibilityLabel("Question for Claude")
+                .accessibilityLabel("Question for ChatGPT")
             HStack(spacing: 6) {
+                let current = ChatSettings.model(chat.model)
                 Menu {
                     Section("Model") {
-                        ForEach(ClaudeModel.allCases) { m in
-                            menuOption(m.name, detail: m.detail, selected: chat.model == m) { chat.model = m }
+                        ForEach(ChatSettings.models) { m in
+                            menuOption(m.name, detail: m.detail, selected: current.slug == m.slug) { chat.model = m.slug }
                         }
                     }
                 } label: {
-                    Chip(symbol: chat.model.symbol, title: chat.model.name)
+                    Chip(symbol: current.symbol, title: current.name)
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .tooltip("Claude model")
+                .tooltip("ChatGPT model")
 
-                Menu {
-                    Section("Effort") {
-                        ForEach(ClaudeEffort.allCases) { e in
-                            menuOption(e.name, detail: e.detail, selected: chat.effort == e) { chat.effort = e }
+                if !current.efforts.isEmpty {
+                    let effort = ChatSettings.resolve(model: chat.model, effort: chat.effort).effort
+                    Menu {
+                        Section("Reasoning") {
+                            ForEach(current.efforts, id: \.self) { e in
+                                menuOption(ChatGPTModel.effortName(e), detail: ChatGPTModel.effortDetail(e), selected: effort == e) { chat.effort = e }
+                            }
                         }
+                    } label: {
+                        Chip(symbol: nil, title: "\(ChatGPTModel.effortName(effort)) effort")
                     }
-                } label: {
-                    Chip(symbol: nil, title: "\(chat.effort.name) effort")
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .tooltip("How hard ChatGPT thinks")
                 }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .tooltip("How hard Claude thinks")
 
                 Spacer()
 
@@ -655,14 +700,27 @@ struct ClaudePanel: View {
                 }
             }
         }
-        .padding(reader.claudeExpanded ? 16 : 12)
+        .padding(reader.assistantExpanded ? 16 : 12)
         .background(RoundedRectangle(cornerRadius: 18).fill(.primary.opacity(0.05)))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.4) : .primary.opacity(0.08), lineWidth: 1))
         .animation(.easeOut(duration: 0.15), value: inputFocused)
         .padding(.horizontal, 12)
-        .padding(.bottom, reader.claudeExpanded ? 20 : 12)
         .padding(.top, 4)
         .frame(maxWidth: Self.readableWidth)
+    }
+
+    /// Shown under the composer whenever questions use the reader's ChatGPT plan.
+    private var planUsage: some View {
+        HStack(spacing: 4) {
+            Text("Using ChatGPT plan")
+            Text("·")
+            Link("Manage usage", destination: ChatGPTAccount.usageURL)
+                .foregroundStyle(Self.accent)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.top, 6)
+        .padding(.bottom, reader.assistantExpanded ? 14 : 10)
     }
 
     // MARK: History
@@ -671,7 +729,7 @@ struct ClaudePanel: View {
         let threads = reader.state.liveChats
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
-                PanelIconButton(symbol: "chevron.left", label: "Back") { reader.claudeShowsHistory = false }
+                PanelIconButton(symbol: "chevron.left", label: "Back") { reader.assistantShowsHistory = false }
                 Text("Conversations").font(.headline)
                 Spacer()
                 HStack(spacing: 4) {
@@ -679,7 +737,7 @@ struct ClaudePanel: View {
                         .disabled(threads.isEmpty)
                     PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                         chat.newThread()
-                        reader.claudeShowsHistory = false
+                        reader.assistantShowsHistory = false
                         inputFocused = true
                     }
                 }
@@ -704,7 +762,7 @@ struct ClaudePanel: View {
                     LazyVStack(spacing: 4) {
                         ForEach(threads) { t in
                             HistoryRow(thread: t, isCurrent: t.id == chat.thread?.id,
-                                       open: { chat.open(t); reader.claudeShowsHistory = false },
+                                       open: { chat.open(t); reader.assistantShowsHistory = false },
                                        delete: { withAnimation(.snappy) { chat.delete(t) } })
                         }
                     }
@@ -737,7 +795,7 @@ private struct PanelSurface: ViewModifier {
     }
 }
 
-struct ClaudeAvatar: View {
+struct AssistantAvatar: View {
     var size: CGFloat = 28
 
     var body: some View {
@@ -745,7 +803,7 @@ struct ClaudeAvatar: View {
             .font(.system(size: size * 0.46, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Circle().fill(LinearGradient(colors: [Color(hex: "#E08A68"), Color(hex: "#B8532F")],
+            .background(Circle().fill(LinearGradient(colors: [Color(hex: "#3A3A3C"), Color(hex: "#0D0D0D")],
                                                      startPoint: .topLeading, endPoint: .bottomTrailing)))
             .accessibilityHidden(true)
     }
@@ -905,18 +963,26 @@ private struct PendingPassage: View {
         }
         .padding(8)
         .background(.primary.opacity(0.05), in: .rect(cornerRadius: 10))
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
 private struct ErrorCard: View {
-    let message: String
+    let problem: ChatProblem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Claude couldn’t answer", systemImage: "exclamationmark.triangle.fill")
+            Label(problem.kind == .usageLimit ? "Usage limit reached" : "ChatGPT couldn’t answer",
+                  systemImage: "exclamationmark.triangle.fill")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.orange)
-            Text(Markdown.attributed(message)).font(.callout).textSelection(.enabled)
+            Text(Markdown.attributed(problem.message)).font(.callout).textSelection(.enabled)
+            if problem.kind == .usageLimit {
+                Button("Manage Usage") { NSWorkspace.shared.open(ChatGPTAccount.usageURL) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.primary)
+                    .controlSize(.small)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -946,7 +1012,7 @@ private struct MessageView: View {
     }
 }
 
-/// Renders Claude's Markdown: paragraphs, headings, lists, tables, quotes and code.
+/// Renders ChatGPT's Markdown: paragraphs, headings, lists, tables, quotes and code.
 struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
@@ -1055,7 +1121,7 @@ struct FlowLayout: Layout {
     }
 }
 
-/// Cards for what Claude did in the app, each with Undo while the session lasts.
+/// Cards for what ChatGPT did in the app, each with Undo while the session lasts.
 private struct ActivityList: View {
     let items: [ChatActivity]
     let undo: ((UUID) -> Void)?
@@ -1086,5 +1152,58 @@ private struct ActivityList: View {
                 .padding(.vertical, 1)
             }
         }
+    }
+}
+
+/// Starts Sign in with ChatGPT, shown in place of the composer while signed out.
+struct ChatGPTSignInCard: View {
+    var compact = false
+    private var account: ChatGPTAccount { .shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Use your ChatGPT plan").font(.headline)
+            Text("Ask about your books with your ChatGPT Plus or Pro plan. You sign in on OpenAI’s website; Books never sees your password.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let problem = account.problem, account.status != .signingIn {
+                Text(problem).font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if account.status == .signingIn {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Finish signing in in your browser…").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel") { account.cancelSignIn() }.controlSize(.small)
+                }
+            } else {
+                ContinueWithChatGPTButton { account.signIn() }
+            }
+        }
+        .padding(compact ? 14 : 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// The black "Continue with ChatGPT" button from OpenAI's sign-in guidelines.
+struct ContinueWithChatGPTButton: View {
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button(action: action) {
+            Text("Continue with ChatGPT")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(scheme == .dark ? Color.black : Color.white)
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .background(Capsule().fill(scheme == .dark ? Color.white : Color.black))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Continue with ChatGPT")
     }
 }

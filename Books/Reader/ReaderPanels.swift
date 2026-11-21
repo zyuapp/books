@@ -275,9 +275,9 @@ private struct HighlightRow: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(highlight.text, forType: .string)
             }
-            Button("Ask Claude About This") {
-                model.claudeDraft = ClaudeRequestSeed(passage: highlight.text, action: nil, locator: highlight.locator)
-                model.showClaude = true
+            Button("Ask ChatGPT About This") {
+                model.assistantDraft = AssistantRequestSeed(passage: highlight.text, action: nil, locator: highlight.locator)
+                model.showAssistant = true
             }
             Divider()
             Button("Delete Highlight", role: .destructive) { model.deleteHighlight(highlight.id) }

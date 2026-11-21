@@ -88,14 +88,14 @@ final class ReaderModel {
     var panel: ReaderPanel?
     /// Which list the notes panel shows: 0 highlights, 1 bookmarks.
     var notesTab = 0
-    var showClaude = false
-    var claudeShowsHistory = false
-    var claudeExpanded = UserDefaults.standard.object(forKey: "claudeExpanded") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(claudeExpanded, forKey: "claudeExpanded") }
+    var showAssistant = false
+    var assistantShowsHistory = false
+    var assistantExpanded = UserDefaults.standard.object(forKey: "assistantExpanded") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(assistantExpanded, forKey: "assistantExpanded") }
     }
-    /// Bumped to move keyboard focus into Claude's input.
-    var claudeFocusRequest = 0
-    var claudeInputFocused = false
+    /// Bumped to move keyboard focus into ChatGPT's input.
+    var assistantFocusRequest = 0
+    var assistantInputFocused = false
     var showSettings = false
     /// Controls auto-hide only in full screen; in a window they stay put.
     var chromeVisible = true
@@ -109,9 +109,9 @@ final class ReaderModel {
     var selection: ReaderSelection?
     var footnote: FootnotePopup?
     var noteEditor: Highlight?
-    var claudeDraft: ClaudeRequestSeed?
-    /// Set to start a blank conversation once the Claude panel handles it.
-    var claudeNewThreadRequested = false
+    var assistantDraft: AssistantRequestSeed?
+    /// Set to start a blank conversation once the ChatGPT panel handles it.
+    var assistantNewThreadRequested = false
 
     var searchQuery = ""
     private(set) var searchResults: [SearchResult] = []
@@ -368,7 +368,7 @@ final class ReaderModel {
         guard isFullScreen else { return }
         chromeTask = Task {
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled, isFullScreen, panel == nil, !showClaude, !showSettings, selection == nil else { return }
+            guard !Task.isCancelled, isFullScreen, panel == nil, !showAssistant, !showSettings, selection == nil else { return }
             withAnimation(Motion.popup) { chromeVisible = false }
         }
     }
@@ -433,10 +433,10 @@ final class ReaderModel {
             engine?.clearSelection()
         } else if showSettings {
             showSettings = false
-        } else if showClaude && claudeShowsHistory {
-            withAnimation(Motion.panel) { claudeShowsHistory = false }
-        } else if showClaude || panel != nil {
-            withAnimation(Motion.panel) { showClaude = false; panel = nil }
+        } else if showAssistant && assistantShowsHistory {
+            withAnimation(Motion.panel) { assistantShowsHistory = false }
+        } else if showAssistant || panel != nil {
+            withAnimation(Motion.panel) { showAssistant = false; panel = nil }
         } else if let window, window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         } else {
@@ -554,27 +554,27 @@ final class ReaderModel {
         engine?.clearSelection()
     }
 
-    // MARK: Claude
+    // MARK: ChatGPT
 
-    func askClaude(action: ClaudeQuickAction?) {
+    func askAssistant(action: AssistantQuickAction?) {
         let passage = selection?.text
         // Opening the panel on its own resumes the current conversation.
         if passage != nil || action != nil {
-            claudeDraft = ClaudeRequestSeed(passage: passage, action: action, locator: location)
+            assistantDraft = AssistantRequestSeed(passage: passage, action: action, locator: location)
         }
         selection = nil
         engine?.clearSelection()
-        withAnimation(Motion.panel) { showClaude = true }
-        claudeFocusRequest += 1
+        withAnimation(Motion.panel) { showAssistant = true }
+        assistantFocusRequest += 1
     }
 
-    func newClaudeChat() {
-        claudeDraft = nil
-        claudeNewThreadRequested = true
+    func newAssistantChat() {
+        assistantDraft = nil
+        assistantNewThreadRequested = true
         selection = nil
         engine?.clearSelection()
-        withAnimation(Motion.panel) { showClaude = true }
-        claudeFocusRequest += 1
+        withAnimation(Motion.panel) { showAssistant = true }
+        assistantFocusRequest += 1
     }
 
     /// Plain text of every spine item (pages for PDFs), cached.
@@ -624,14 +624,14 @@ final class ReaderModel {
     }
 }
 
-struct ClaudeRequestSeed: Equatable, Identifiable {
+struct AssistantRequestSeed: Equatable, Identifiable {
     let id = UUID()
     var passage: String?
-    var action: ClaudeQuickAction?
+    var action: AssistantQuickAction?
     var locator: Locator
 }
 
-enum ClaudeQuickAction: String, CaseIterable, Identifiable {
+enum AssistantQuickAction: String, CaseIterable, Identifiable {
     case explain, summarize, define, discuss
 
     var id: String { rawValue }

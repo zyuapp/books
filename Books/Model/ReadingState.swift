@@ -62,7 +62,7 @@ struct ChatMessage: Codable, Hashable, Identifiable, Sendable {
     var date = Date()
     /// The passage the reader selected when asking this question.
     var passage: String? = nil
-    /// What Claude did in the app while writing this answer.
+    /// What ChatGPT did in the app while writing this answer.
     var actions: [String]? = nil
 }
 
@@ -73,7 +73,7 @@ struct ChatThread: Syncable, Hashable, Sendable {
     var passage: String?
     var locator: Locator?
     /// Never `.page`, so older versions syncing this thread can still decode it; see `pageOnly`.
-    var scope: ClaudeScope = .chapter
+    var scope: AssistantScope = .chapter
     var pageOnly: Bool?
     var messages: [ChatMessage] = []
     var created = Date()
@@ -101,7 +101,7 @@ struct ChatThread: Syncable, Hashable, Sendable {
         return lines.joined(separator: " ").replacing(/[*_`]/, with: "")
     }
 
-    var contextScope: ClaudeScope {
+    var contextScope: AssistantScope {
         get { pageOnly == true ? .page : scope }
         set {
             scope = newValue == .page ? .chapter : newValue
@@ -111,7 +111,7 @@ struct ChatThread: Syncable, Hashable, Sendable {
 }
 
 /// Context older versions let the reader pick; kept so synced threads still decode.
-enum ClaudeScope: String, Codable, CaseIterable, Sendable {
+enum AssistantScope: String, Codable, CaseIterable, Sendable {
     case passage, page, chapter, book
 }
 

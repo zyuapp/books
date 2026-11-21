@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Every tool Claude can use in Books, grouped by area. Add a tool to one of the catalogs to expose it.
+/// Every tool ChatGPT can use in Books, grouped by area. Add a tool to one of the catalogs to expose it.
 @MainActor
 enum AgentToolbox {
     static let all: [AgentTool] = ReadingTools.all + NotesTools.all + NavigationTools.all + AnnotationTools.all
@@ -9,7 +9,23 @@ enum AgentToolbox {
 
     static func tool(named name: String) -> AgentTool? { all.first { $0.name == name } }
 
-    /// One-paragraph guide appended to Claude's system prompt.
+    /// Runs a tool call from ChatGPT and returns the text it sees; failures are reported as text too.
+    static func call(name: String, arguments: String, session: AgentSession) async -> String {
+        let bare = name.split(separator: ".").last.map(String.init) ?? name
+        guard let tool = tool(named: bare) else { return "Unknown tool \(name)." }
+        let raw = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any] ?? [:]
+        session.onProgress(tool.progress)
+        defer { session.onProgress(nil) }
+        do {
+            let output = try await tool.run(ToolArguments(raw: raw), session)
+            if let activity = output.activity { session.onActivity(activity) }
+            return output.text
+        } catch {
+            return "Error: \(error.localizedDescription)"
+        }
+    }
+
+    /// One-paragraph guide appended to ChatGPT's system prompt.
     static let guidance = """
     You can use the Books tools to look things up and act inside the app: read and search the book, read the \
     reader's highlights, notes and bookmarks across their whole library, move around the book, create or edit \
