@@ -77,6 +77,8 @@ final class ChatGPTAccount {
     private(set) var models: [ChatGPTModel]
     /// Why the last sign-in or session failed, for the sign-in card.
     var problem: String?
+    /// Set when ChatGPT reports a usage limit; new questions wait until the reader tries again.
+    var usageLimitReached = false
     /// Whether "Use Another Account" makes sense: a previous account is remembered.
     var hasSavedAccount: Bool { lastRegistration != nil }
 
@@ -114,6 +116,7 @@ final class ChatGPTAccount {
                 credentials = creds
                 email = creds.email
                 status = .signedIn
+                usageLimitReached = false
                 NSApp.activate()
                 NSApp.requestUserAttention(.informationalRequest)
                 if !UserDefaults.standard.bool(forKey: Keys.welcomed) {

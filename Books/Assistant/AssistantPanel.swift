@@ -11,7 +11,7 @@ final class AssistantChat {
     /// The part of the streaming answer on screen so far.
     var streamingText = ""
     var isStreaming = false
-    var error: ChatProblem?
+    var error: String?
     /// What a running tool is doing, e.g. "Reading your highlights".
     var toolProgress: String?
     /// Changes ChatGPT made this session, kept so they can be undone. `messageID` is nil while the answer streams.
@@ -128,7 +128,7 @@ final class AssistantChat {
 
     func send(_ text: String? = nil) {
         let question = (text ?? input).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !isStreaming, let reader else { return }
+        guard !question.isEmpty, !isStreaming, !ChatGPTAccount.shared.usageLimitReached, let reader else { return }
         input = ""
         error = nil
         let selected = pendingPassage
@@ -185,7 +185,7 @@ final class AssistantChat {
             } catch {
                 guard !Task.isCancelled else { return }
                 if !received.isEmpty { appendAssistant(String(received)) }
-                self.error = ChatProblem(error)
+                if case ChatGPTError.usageLimit = error {} else { self.error = error.localizedDescription }
             }
             revealTask?.cancel()
             revealTask = nil
@@ -308,22 +308,6 @@ enum ChatSettings {
         let m = model(slug)
         if m.efforts.isEmpty || m.efforts.contains(effort) { return (m.slug, effort) }
         return (m.slug, m.defaultEffort ?? m.efforts[0])
-    }
-}
-
-/// An error shown in the conversation, with the action that resolves it.
-struct ChatProblem: Equatable {
-    enum Kind { case general, usageLimit, signedOut }
-    var message: String
-    var kind: Kind
-
-    init(_ error: Error) {
-        message = error.localizedDescription
-        switch error {
-        case ChatGPTError.usageLimit: kind = .usageLimit
-        case ChatGPTAuthError.sessionEnded: kind = .signedOut
-        default: kind = .general
-        }
     }
 }
 
@@ -519,8 +503,10 @@ struct AssistantPanel: View {
                         }
                         .id("streaming")
                     }
-                    if let error = chat.error {
-                        ErrorCard(problem: error)
+                    if ChatGPTAccount.shared.usageLimitReached {
+                        UsageLimitCard()
+                    } else if let error = chat.error {
+                        ErrorCard(message: error)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -686,6 +672,7 @@ struct AssistantPanel: View {
                     .accessibilityLabel("Stop")
                 } else {
                     let empty = chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || ChatGPTAccount.shared.usageLimitReached
                     Button { chat.send() } label: {
                         Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
@@ -968,21 +955,14 @@ private struct PendingPassage: View {
 }
 
 private struct ErrorCard: View {
-    let problem: ChatProblem
+    let message: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(problem.kind == .usageLimit ? "Usage limit reached" : "ChatGPT couldn’t answer",
-                  systemImage: "exclamationmark.triangle.fill")
+            Label("ChatGPT couldn’t answer", systemImage: "exclamationmark.triangle.fill")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.orange)
-            Text(Markdown.attributed(problem.message)).font(.callout).textSelection(.enabled)
-            if problem.kind == .usageLimit {
-                Button("Manage Usage") { NSWorkspace.shared.open(ChatGPTAccount.usageURL) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.primary)
-                    .controlSize(.small)
-            }
+            Text(Markdown.attributed(message)).font(.callout).textSelection(.enabled)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1191,11 +1171,49 @@ struct ChatGPTSignInCard: View {
 /// The black "Continue with ChatGPT" button from OpenAI's sign-in guidelines.
 struct ContinueWithChatGPTButton: View {
     let action: () -> Void
+
+    var body: some View {
+        ChatGPTPrimaryButton(title: "Continue with ChatGPT", action: action)
+    }
+}
+
+/// Shown when ChatGPT reports a usage limit, following OpenAI's guidelines: ChatGPT identity, Manage usage first.
+private struct UsageLimitCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                AssistantAvatar(size: 20)
+                Text("ChatGPT").font(.subheadline.weight(.semibold))
+            }
+            Text("Usage limit reached").font(.title3.weight(.semibold))
+            Text(ChatGPTError.usageLimit.localizedDescription)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                ChatGPTPrimaryButton(title: "Manage usage") { NSWorkspace.shared.open(ChatGPTAccount.usageURL) }
+                Button("Try again") { withAnimation(.snappy) { ChatGPTAccount.shared.usageLimitReached = false } }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// Black capsule button in OpenAI's sign-in style; white in dark mode.
+struct ChatGPTPrimaryButton: View {
+    let title: String
+    let action: () -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(action: action) {
-            Text("Continue with ChatGPT")
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(scheme == .dark ? Color.black : Color.white)
                 .padding(.horizontal, 16)
@@ -1204,6 +1222,6 @@ struct ContinueWithChatGPTButton: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Continue with ChatGPT")
+        .accessibilityLabel(title)
     }
 }

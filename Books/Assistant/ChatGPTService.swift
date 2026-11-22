@@ -15,7 +15,7 @@ enum ChatGPTError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .usageLimit: "You’ve reached a ChatGPT usage limit for Books. Review your plan or Books’ limit in ChatGPT settings."
+        case .usageLimit: "You’ve reached a usage limit for your ChatGPT plan or for Books. Review your plan or Books’ limit in ChatGPT settings."
         case .notEligible: "ChatGPT plan usage isn’t available for this account or workspace."
         case .failed(let message): message
         }
@@ -40,7 +40,9 @@ enum ChatGPTService {
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch let error as APIError {
-                    continuation.finish(throwing: error.asChatGPTError)
+                    let failure = error.asChatGPTError
+                    if case .usageLimit = failure { ChatGPTAccount.shared.usageLimitReached = true }
+                    continuation.finish(throwing: failure)
                 } catch {
                     continuation.finish(throwing: error)
                 }
