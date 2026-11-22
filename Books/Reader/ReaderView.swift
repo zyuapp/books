@@ -274,7 +274,7 @@ private struct TopBar: View {
     var body: some View {
         HeaderBar(title: model.title.mainTitle, subtitle: subtitle, titleFont: .custom("Seravek", size: 14).weight(.medium), titleColor: theme.foregroundColor.opacity(0.85)) {
             HeaderButtonGroup {
-                HeaderButton(symbol: "chevron.left", label: "Back to Library", tooltip: "Back to Library (⇧⌘L)") {
+                HeaderButton(symbol: "house", label: "Library", tooltip: "Library (⇧⌘L)") {
                     OpenBridge.shared.showLibrary()
                 }
                 panelButton(.contents, symbol: "list.bullet", label: "Contents", shortcut: "⌥⌘T")

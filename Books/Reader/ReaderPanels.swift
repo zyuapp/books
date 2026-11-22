@@ -14,37 +14,15 @@ struct SidePanel: View {
     /// Keeps showing the last panel while sliding out.
     private var shown: ReaderPanel { model.panel ?? lastPanel }
 
-    private enum Segment: Hashable { case contents, highlights, bookmarks, search }
-
-    private var segment: Segment {
-        switch shown {
-        case .contents: .contents
-        case .notes: model.notesTab == 0 ? .highlights : .bookmarks
-        case .search: .search
-        }
-    }
-
-    private func select(_ segment: Segment) {
-        switch segment {
-        case .contents: model.panel = .contents
-        case .highlights: model.notesTab = 0; model.panel = .notes
-        case .bookmarks: model.notesTab = 1; model.panel = .notes
-        case .search: model.panel = .search
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            PillPicker(selection: Binding(get: { segment }, set: select),
-                       options: [(.contents, "Contents"), (.highlights, "Highlights"), (.bookmarks, "Bookmarks"), (.search, "Search")])
-                .padding(12)
-
             switch shown {
             case .contents: ContentsList(model: model)
             case .notes: NotesList(model: model)
             case .search: SearchPanel(model: model)
             }
         }
+        .padding(.top, 12)
         .transaction { $0.animation = nil }
         .frame(width: Self.width)
         .glassSurface(in: .rect(cornerRadius: 26),
@@ -155,6 +133,10 @@ private struct NotesList: View {
         let bookmarks = model.state.liveBookmarks.sorted { $0.locator.totalProgress < $1.locator.totalProgress }
         let showsHighlights = model.notesTab == 0
         VStack(spacing: 0) {
+            PillPicker(selection: Binding(get: { model.notesTab }, set: { model.notesTab = $0 }),
+                       options: [(0, "Highlights"), (1, "Bookmarks")])
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
             HStack(spacing: 4) {
                 Text(showsHighlights ? count(highlights.count, "highlight") : count(bookmarks.count, "bookmark"))
                     .font(.callout.weight(.medium)).foregroundStyle(.secondary)

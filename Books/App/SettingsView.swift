@@ -146,7 +146,7 @@ private struct ReadingSettingsTab: View {
 private struct ChatGPTSettings: View {
     @AppStorage(ChatSettings.modelKey) private var model = ChatGPTModel.fallback.slug
     @AppStorage(ChatSettings.effortKey) private var effort = "low"
-    @AppStorage(ChatFont.key) private var chatFont = ChatFont.seravek
+    @AppStorage(ChatFont.key) private var chatFont = ChatFont.standard
     @AppStorage(ChatTextSize.key) private var chatTextSize = ChatTextSize.standard
     @State private var signOutNote: String?
     private var account: ChatGPTAccount { .shared }

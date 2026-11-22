@@ -313,7 +313,9 @@ enum ChatSettings {
 
 /// Typeface for ChatGPT's replies, chosen in Settings › ChatGPT.
 enum ChatFont: String, CaseIterable, Identifiable {
-    case seravek, charter, newYork, system
+    case system, seravek, charter, newYork
+
+    static let standard = ChatFont.system
 
     static let key = "chatFont"
     var id: String { rawValue }
@@ -362,9 +364,11 @@ struct AssistantPanel: View {
     @State private var tracksScroll = false
     /// Whether new text keeps the conversation scrolled to the bottom; off while the reader scrolls back.
     @State private var followsLatest = true
+    /// Set while the shown conversation was picked from the list, so the header offers a way back to it.
+    @State private var openedFromHistory = false
     @AppStorage(ChatTextSize.key) private var textSize = ChatTextSize.standard
 
-    private static let accent = Color.brand
+    private static let accent = Color.primary
     private static let readableWidth: CGFloat = 760
     static let compactWidth: CGFloat = 400
 
@@ -396,7 +400,7 @@ struct AssistantPanel: View {
         .modifier(PanelSurface(expanded: reader.assistantExpanded, theme: theme))
         .readerOverlay()
         .onChange(of: reader.assistantDraft) { _, seed in
-            if let seed { chat.begin(with: seed); reader.assistantShowsHistory = false; reader.assistantDraft = nil }
+            if let seed { chat.begin(with: seed); reader.assistantShowsHistory = false; openedFromHistory = false; reader.assistantDraft = nil }
         }
         .onChange(of: reader.assistantNewThreadRequested) { _, requested in
             if requested { startNewThread() }
@@ -423,6 +427,7 @@ struct AssistantPanel: View {
         reader.assistantNewThreadRequested = false
         chat.newThread()
         reader.assistantShowsHistory = false
+        openedFromHistory = false
     }
 
     /// Focus set during the same update as the field's insertion is dropped, so it waits a run-loop turn.
@@ -434,7 +439,11 @@ struct AssistantPanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if !reader.assistantExpanded { AssistantAvatar(size: 30) }
+            if openedFromHistory {
+                PanelIconButton(symbol: "chevron.left", label: "Back to Conversations") { reader.assistantShowsHistory = true }
+            } else if !reader.assistantExpanded {
+                AssistantAvatar(size: 30)
+            }
             Text(chat.thread?.messages.isEmpty == false ? (chat.thread?.title ?? "ChatGPT") : reader.assistantExpanded ? "" : "ChatGPT")
                 .font(reader.assistantExpanded ? .subheadline.weight(.medium) : .headline)
                 .foregroundStyle(reader.assistantExpanded ? .secondary : .primary)
@@ -444,6 +453,7 @@ struct AssistantPanel: View {
                 PanelIconButton(symbol: "clock.arrow.circlepath", label: "Conversations") { reader.assistantShowsHistory = true }
                 PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                     chat.newThread()
+                    openedFromHistory = false
                     inputFocused = true
                 }
                 PanelIconButton(symbol: reader.assistantExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
@@ -586,7 +596,7 @@ struct AssistantPanel: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Self.accent)
                     .frame(width: 28, height: 28)
-                    .background(Self.accent.opacity(0.14), in: .rect(cornerRadius: 8))
+                    .background(Self.accent.opacity(0.08), in: .rect(cornerRadius: 8))
                 Text("What can you do for me?").font(.body.weight(.medium))
                 Spacer()
                 Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
@@ -675,9 +685,9 @@ struct AssistantPanel: View {
                         || ChatGPTAccount.shared.usageLimitReached
                     Button { chat.send() } label: {
                         Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.background)
                             .frame(width: 30, height: 30)
-                            .background(Circle().fill(empty ? AnyShapeStyle(Self.accent.opacity(0.4)) : AnyShapeStyle(Self.accent.gradient)))
+                            .background(Circle().fill(Self.accent.opacity(empty ? 0.25 : 1)))
                     }
                     .buttonStyle(.plain)
                     .disabled(empty)
@@ -689,7 +699,7 @@ struct AssistantPanel: View {
         }
         .padding(reader.assistantExpanded ? 16 : 12)
         .background(RoundedRectangle(cornerRadius: 18).fill(.primary.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.4) : .primary.opacity(0.08), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(inputFocused ? Self.accent.opacity(0.25) : .primary.opacity(0.08), lineWidth: 1))
         .animation(.easeOut(duration: 0.15), value: inputFocused)
         .padding(.horizontal, 12)
         .padding(.top, 4)
@@ -702,7 +712,7 @@ struct AssistantPanel: View {
             Text("Using ChatGPT plan")
             Text("·")
             Link("Manage usage", destination: ChatGPTAccount.usageURL)
-                .foregroundStyle(Self.accent)
+                .foregroundStyle(.primary)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -725,6 +735,7 @@ struct AssistantPanel: View {
                     PanelIconButton(symbol: "square.and.pencil", label: "New Conversation") {
                         chat.newThread()
                         reader.assistantShowsHistory = false
+                        openedFromHistory = false
                         inputFocused = true
                     }
                 }
@@ -749,7 +760,7 @@ struct AssistantPanel: View {
                     LazyVStack(spacing: 4) {
                         ForEach(threads) { t in
                             HistoryRow(thread: t, isCurrent: t.id == chat.thread?.id,
-                                       open: { chat.open(t); reader.assistantShowsHistory = false },
+                                       open: { chat.open(t); openedFromHistory = true; reader.assistantShowsHistory = false },
                                        delete: { withAnimation(.snappy) { chat.delete(t) } })
                         }
                     }
@@ -868,7 +879,7 @@ private struct HistoryRow: View {
                 }
                 HStack(spacing: 4) {
                     Text(thread.updated, format: .relative(presentation: .named))
-                    if isCurrent { Text("· Open").foregroundStyle(Color.brand) }
+                    if isCurrent { Text("· Open").foregroundStyle(.primary) }
                 }
                 .font(.callout).foregroundStyle(.primary.opacity(0.65))
             }
@@ -912,7 +923,7 @@ private struct PassageCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 2).fill(Color.brand.gradient).frame(width: 3)
+            RoundedRectangle(cornerRadius: 2).fill(.primary.opacity(0.3)).frame(width: 3)
             Text(text)
                 .font(.custom("Charter", size: 14))
                 .lineLimit(expanded ? nil : 3)
@@ -933,7 +944,7 @@ private struct PendingPassage: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5).fill(Color.brand.gradient).frame(width: 3)
+            RoundedRectangle(cornerRadius: 1.5).fill(.primary.opacity(0.3)).frame(width: 3)
             Text(text.collapsingWhitespace)
                 .font(.custom("Charter", size: 13))
                 .lineLimit(2)
@@ -984,7 +995,7 @@ private struct MessageView: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(Color.brand.opacity(0.14), in: .rect(cornerRadius: 18))
+                    .background(.primary.opacity(0.07), in: .rect(cornerRadius: 18))
             }
         } else {
             MarkdownText(text: message.text, rendersDiagrams: !streaming)
@@ -997,7 +1008,7 @@ struct MarkdownText: View {
     let text: String
     var rendersDiagrams = true
 
-    @AppStorage(ChatFont.key) private var face = ChatFont.seravek
+    @AppStorage(ChatFont.key) private var face = ChatFont.standard
     @AppStorage(ChatTextSize.key) private var size = ChatTextSize.standard
 
     private var scale: CGFloat { size / ChatTextSize.standard }
@@ -1126,7 +1137,7 @@ private struct ActivityList: View {
                         Button(item.activity.undoLabel) { undo(item.id) }
                             .buttonStyle(.borderless)
                             .font(.callout.weight(.medium))
-                            .foregroundStyle(Color.brand)
+                            .foregroundStyle(.primary)
                     }
                 }
                 .padding(.vertical, 1)
