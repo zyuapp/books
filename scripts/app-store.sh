@@ -1,7 +1,8 @@
 #!/bin/sh
 # Archives the sandboxed Mac App Store build (APP_STORE: no self-updater) and uploads it to App Store Connect.
-# Signs through Xcode's automatic (cloud) signing: with APPLE_API_KEY (path to the .p8), APPLE_API_KEY_ID and
-# APPLE_API_ISSUER set, as an App Store Connect API key; otherwise as the Apple account signed in to Xcode.
+# Signs with Xcode's automatic (cloud) signing, authenticated by an App Store Connect API key when APPLE_API_KEY
+# (path to the .p8), APPLE_API_KEY_ID and APPLE_API_ISSUER are set, otherwise by the Apple account signed in to
+# Xcode. The development profile the archive step needs requires at least one Mac registered to the team.
 # Set PAGE_OWL_UPLOAD=0 to export a signed .pkg to dist/AppStore instead of uploading.
 set -eu
 
