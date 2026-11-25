@@ -66,10 +66,26 @@ enum BookLoader {
         return cacheRoot.appendingPathComponent("\(bookID)-\(Int(mtime))-v\(cacheVersion)", isDirectory: true)
     }
 
+    private static let locksGuard = NSLock()
+    nonisolated(unsafe) private static var locks: [String: NSLock] = [:]
+
+    /// Serializes loads of one book, so a second caller waits for the first unpack instead of deleting it midway.
+    private static func lock(for dir: URL) -> NSLock {
+        locksGuard.withLock {
+            if let l = locks[dir.path] { return l }
+            let l = NSLock()
+            locks[dir.path] = l
+            return l
+        }
+    }
+
     static func load(_ url: URL, bookID: String) throws -> Publication {
         guard let format = BookFormat(url: url) else { throw PublicationError.unsupportedFormat(url.pathExtension) }
         let fm = FileManager.default
         let dir = cacheDirectory(for: url, bookID: bookID)
+        let bookLock = lock(for: dir)
+        bookLock.lock()
+        defer { bookLock.unlock() }
         let manifest = dir.appendingPathComponent("publication.json")
 
         if let data = try? Data(contentsOf: manifest),
