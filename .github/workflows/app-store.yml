@@ -2,6 +2,12 @@ name: App Store
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Tag or commit to build
+        type: string
+        required: true
 
 concurrency:
   group: app-store
@@ -17,6 +23,8 @@ jobs:
     environment: release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Select Xcode 26
         run: |
           XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"

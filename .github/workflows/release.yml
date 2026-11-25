@@ -171,3 +171,10 @@ jobs:
           fi
           gh release upload "$TAG" release/* --clobber
           gh release edit "$TAG" --draft=false --latest
+
+  app-store:
+    needs: [build-mac, publish]
+    uses: ./.github/workflows/app-store.yml
+    with:
+      ref: ${{ needs.build-mac.outputs.tag }}
+    secrets: inherit
