@@ -294,7 +294,6 @@
 				};
 			};
 			buildConfigurationList = 14869C274A9673759B8C97B1 /* Build configuration list for PBXProject "PageOwl" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -304,6 +303,7 @@
 			mainGroup = 8582789211096925DD5A6D97;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 0B9973B84F2E0F66D3FADD06 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -459,7 +459,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.26;
+				MARKETING_VERSION = 0.1.27;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zyu.books;
 				PRODUCT_NAME = "Page Owl";
 				SDKROOT = macosx;
@@ -483,7 +483,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.26;
+				MARKETING_VERSION = 0.1.27;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zyu.books;
 				PRODUCT_NAME = "Page Owl";
 				SDKROOT = macosx;
