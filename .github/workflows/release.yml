@@ -83,9 +83,9 @@ jobs:
           security list-keychains -d user -s "$SIGNING_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
       - name: Build and sign
         env:
-          BOOKS_RELEASE: "1"
-          BOOKS_VERSION: ${{ steps.version.outputs.version }}
-          BOOKS_BUILD: ${{ github.run_number }}
+          PAGE_OWL_RELEASE: "1"
+          PAGE_OWL_VERSION: ${{ steps.version.outputs.version }}
+          PAGE_OWL_BUILD: ${{ github.run_number }}
         run: scripts/build-app.sh
       - name: Notarize
         env:
@@ -113,10 +113,12 @@ jobs:
         with:
           name: packages-mac
           path: |
+            dist/PageOwl.zip
+            dist/PageOwl.zip.sha256
+            dist/PageOwl.dmg
+            dist/PageOwl.dmg.sha256
             dist/Books.zip
             dist/Books.zip.sha256
-            dist/Books.dmg
-            dist/Books.dmg.sha256
           if-no-files-found: error
 
   publish:

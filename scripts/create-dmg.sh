@@ -2,8 +2,8 @@
 # Packages an app bundle into a drag-to-Applications DMG.
 set -eu
 
-app_path=${1:-build.noindex/Books.app}
-dmg_path=${2:-dist/Books.dmg}
+app_path=${1:-build.noindex/Page Owl.app}
+dmg_path=${2:-dist/PageOwl.dmg}
 staging_dir=$(mktemp -d)
 
 cleanup() {
@@ -11,12 +11,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ditto "$app_path" "$staging_dir/Books.app"
+ditto "$app_path" "$staging_dir/Page Owl.app"
 ln -s /Applications "$staging_dir/Applications"
 mkdir -p "$(dirname "$dmg_path")"
 hdiutil create \
   -quiet \
-  -volname "Books" \
+  -volname "Page Owl" \
   -srcfolder "$staging_dir" \
   -format UDZO \
   -ov \
