@@ -1,0 +1,41 @@
+name: App Store
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: app-store
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Restore API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" | base64 -D > "$RUNNER_TEMP/apple.p8"
+      - name: Archive and upload
+        env:
+          APPLE_API_KEY: ${{ runner.temp }}/apple.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: scripts/app-store.sh
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/apple.p8"

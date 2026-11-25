@@ -24,7 +24,12 @@ final class Updater {
     @ObservationIgnored private var handedOff = false
 
     let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    #if APP_STORE
+    /// The App Store updates store builds.
+    let app: URL? = nil
+    #else
     let app = Bundle.main.executableURL.flatMap(ReleaseUpdate.installedApp(containing:))
+    #endif
 
     var ready: String? {
         if case .ready(let v) = state { return v }

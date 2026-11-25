@@ -47,6 +47,9 @@ final class LibraryStore {
     @ObservationIgnored private var generation = 0
 
     private static let recentsKey = "externalBookPaths"
+    /// Security-scoped bookmarks for `recentsKey` paths, so a sandboxed build can reopen them after relaunch.
+    private static let bookmarksKey = "externalBookBookmarks"
+    @ObservationIgnored private var accessed: Set<String> = []
 
     private init() {}
 
@@ -124,6 +127,7 @@ final class LibraryStore {
         let root = rootURL
         let data = dataURL
         let externals = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        externals.forEach(restoreAccess)
         let gen = generation
         Task.detached(priority: .utility) {
             var found: [BookRecord] = []
@@ -385,7 +389,12 @@ final class LibraryStore {
         var recents = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
         recents.removeAll { $0 == url.path }
         recents.insert(url.path, at: 0)
-        UserDefaults.standard.set(Array(recents.prefix(200)), forKey: Self.recentsKey)
+        recents = Array(recents.prefix(200))
+        UserDefaults.standard.set(recents, forKey: Self.recentsKey)
+        var marks = UserDefaults.standard.dictionary(forKey: Self.bookmarksKey) as? [String: Data] ?? [:]
+        marks[url.path] = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        UserDefaults.standard.set(marks.filter { recents.contains($0.key) }, forKey: Self.bookmarksKey)
+        accessed.insert(url.path)
         adopt(r)
         return r
     }
@@ -410,6 +419,16 @@ final class LibraryStore {
         ensureStatesAndMetadata()
     }
 
+    /// Reopens sandbox access to an external book once per launch; access lasts until the app quits.
+    private func restoreAccess(_ path: String) {
+        guard !accessed.contains(path),
+              let data = (UserDefaults.standard.dictionary(forKey: Self.bookmarksKey) as? [String: Data])?[path] else { return }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale),
+              url.startAccessingSecurityScopedResource() else { return }
+        accessed.insert(path)
+    }
+
     func removeFromLibrary(_ book: BookRecord, trashFile: Bool) {
         if trashFile && book.inCloudLibrary {
             do { try FileManager.default.trashItem(at: book.url, resultingItemURL: nil) } catch {
@@ -420,6 +439,9 @@ final class LibraryStore {
         var recents = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
         recents.removeAll { $0 == book.url.path }
         UserDefaults.standard.set(recents, forKey: Self.recentsKey)
+        var marks = UserDefaults.standard.dictionary(forKey: Self.bookmarksKey) as? [String: Data] ?? [:]
+        marks[book.url.path] = nil
+        UserDefaults.standard.set(marks, forKey: Self.bookmarksKey)
         books.removeAll { $0.id == book.id }
     }
 

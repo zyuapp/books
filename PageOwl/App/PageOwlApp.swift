@@ -251,9 +251,11 @@ struct BooksCommands: Commands {
     @FocusedValue(\.readerModel) private var reader
 
     var body: some Commands {
+        #if !APP_STORE
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { Task { await Updater.shared.check(interactive: true) } }
         }
+        #endif
         CommandGroup(before: .windowSize) {
             Button("Toggle Full Screen") {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
