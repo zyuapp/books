@@ -24,18 +24,36 @@ jobs:
           xcodebuild -version
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Restore API key
+      - name: Restore signing credentials
+        shell: bash
         env:
+          MAS_CERTIFICATES_P12: ${{ secrets.MAS_CERTIFICATES_P12 }}
+          MAS_CERTIFICATES_PASSWORD: ${{ secrets.MAS_CERTIFICATES_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           umask 077
+          printf '%s' "$MAS_CERTIFICATES_P12" | base64 -D > "$RUNNER_TEMP/mas.p12"
           printf '%s' "$APPLE_API_KEY_P8" | base64 -D > "$RUNNER_TEMP/apple.p8"
-      - name: Archive and upload
+          KEYCHAIN="$RUNNER_TEMP/mas-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/mas.p12" -k "$KEYCHAIN" -P "$MAS_CERTIFICATES_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+      - name: Build and upload
         env:
+          PAGE_OWL_UPLOAD: "1"
           APPLE_API_KEY: ${{ runner.temp }}/apple.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: scripts/app-store.sh
-      - name: Remove API key
+      - name: Remove signing credentials
         if: always()
-        run: rm -f "$RUNNER_TEMP/apple.p8"
+        shell: bash
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/mas-signing.keychain-db"
+          if [ -f "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN"; fi
+          rm -f "$RUNNER_TEMP/mas.p12" "$RUNNER_TEMP/apple.p8"

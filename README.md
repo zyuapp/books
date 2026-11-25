@@ -71,7 +71,7 @@ Or run `xcodegen generate` and open `PageOwl.xcodeproj`. `scripts/make-icon.swif
 
 To give ChatGPT a new ability, add an `AgentTool` to a catalog in `PageOwl/Agent/AgentToolbox.swift`: a name, a description, typed parameters, and a handler that returns text for ChatGPT (and, for changes, an `AgentActivity` with an undo closure). `ChatGPTService` offers every tool in the catalog automatically.
 
-Releases are cut with the **Release** workflow (`.github/workflows/release.yml`): it bumps `VERSION`, builds, signs with Developer ID, notarizes, and publishes `PageOwl.zip` and `PageOwl.dmg` with checksums, plus `Books.zip` for installs from before the rename. The **App Store** workflow (`scripts/app-store.sh`) archives the sandboxed store build, without the self-updater, and uploads it to App Store Connect.
+Releases are cut with the **Release** workflow (`.github/workflows/release.yml`): it bumps `VERSION`, builds, signs with Developer ID, notarizes, and publishes `PageOwl.zip` and `PageOwl.dmg` with checksums, plus `Books.zip` for installs from before the rename. The **App Store** workflow (`scripts/app-store.sh`) builds the sandboxed store package, without the self-updater, signs it with the `MAS_CERTIFICATES_P12` identities and uploads it to App Store Connect.
 
 ## License
 
