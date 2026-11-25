@@ -23,6 +23,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.books
+        ITSAppUsesNonExemptEncryption: false
         LSMinimumSystemVersion: "15.0"
         NSHumanReadableCopyright: ""
         NSUbiquitousContainers:
